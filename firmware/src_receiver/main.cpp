@@ -26,11 +26,11 @@ struct NodeStatus
 NodeStatus registry[50]; // Supports 50 nodes
 
 /* ===== WiFi ===== */
-const char *ssid = "YOUR_WIFI";
-const char *pass = "YOUR_PASS";
+const char *ssid = "Unicorn2012";
+const char *pass = "Finance@5408";
 
 /* ===== Cloud URL ===== */
-String serverURL = "https://your-vercel-url/api/node";
+String serverURL = "https://hazardnode.vercel.app/api/node";
 
 void onReceive(const uint8_t *mac, const uint8_t *data, int len)
 {
