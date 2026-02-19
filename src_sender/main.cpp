@@ -10,7 +10,7 @@
 /* ===== NODE CONFIG ===== */
 #define NODE_ID 1 // CHANGE PER NODE
 
-uint8_t gatewayMAC[] = {0xB0, 0xCB, 0xD8, 0xC6, 0xBC, 0xD0};
+uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x50, 0x60};
 
 /* ===== PIN CONFIG ===== */
 #define DHTPIN 4

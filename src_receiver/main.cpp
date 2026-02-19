@@ -1,7 +1,15 @@
 #include <WiFi.h>
 #include <esp_now.h>
+#include <HTTPClient.h>
 
-/* ===== DATA STRUCT (MUST MATCH SENDER) ===== */
+/* ===== WIFI CREDENTIALS ===== */
+const char *ssid = "Unicorn2012";
+const char *password = "Finance@5408";
+
+/* ===== YOUR BACKEND ENDPOINT ===== */
+const char *serverURL = "https://hazardnode.vercel.app/";
+
+/* ===== DATA STRUCT (MUST MATCH SENDER EXACTLY) ===== */
 typedef struct struct_message
 {
   int nodeID;
@@ -16,95 +24,88 @@ typedef struct struct_message
 
 struct_message incomingData;
 
-int totalPackets = 0;
-
 /* ===== RECEIVE CALLBACK ===== */
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingDataBytes, int len)
 {
 
   memcpy(&incomingData, incomingDataBytes, sizeof(incomingData));
-  totalPackets++;
 
-  Serial.println("=================================");
-  Serial.print("Packet #: ");
-  Serial.println(totalPackets);
-
-  Serial.print("From Node: ");
+  Serial.println("Packet received from node:");
   Serial.println(incomingData.nodeID);
 
-  Serial.print("Temp: ");
-  Serial.println(incomingData.temp);
+  // Convert to JSON
+  String json = "{";
+  json += "\"node\":" + String(incomingData.nodeID) + ",";
+  json += "\"temp\":" + String(incomingData.temp) + ",";
+  json += "\"hum\":" + String(incomingData.hum) + ",";
+  json += "\"pitch\":" + String(incomingData.pitch) + ",";
+  json += "\"roll\":" + String(incomingData.roll) + ",";
+  json += "\"smokeAnalog\":" + String(incomingData.smokeAnalog) + ",";
+  json += "\"smokeDigital\":" + String(incomingData.smokeDigital ? "true" : "false") + ",";
+  json += "\"danger\":" + String(incomingData.danger ? "true" : "false");
+  json += "}";
 
-  Serial.print("Humidity: ");
-  Serial.println(incomingData.hum);
+  Serial.println("Sending JSON:");
+  Serial.println(json);
 
-  Serial.print("Pitch: ");
-  Serial.println(incomingData.pitch);
+  // Send to server
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    HTTPClient http;
+    http.begin(serverURL);
+    http.addHeader("Content-Type", "application/json");
 
-  Serial.print("Roll: ");
-  Serial.println(incomingData.roll);
+    int httpResponseCode = http.POST(json);
 
-  Serial.print("Smoke Analog: ");
-  Serial.println(incomingData.smokeAnalog);
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
 
-  Serial.print("Smoke Digital: ");
-  Serial.println(incomingData.smokeDigital ? "DETECTED" : "CLEAR");
+    http.end();
+  }
+  else
+  {
+    Serial.println("WiFi not connected!");
+  }
 
-  Serial.print("Danger: ");
-  Serial.println(incomingData.danger ? "YES" : "NO");
-
-  /* ===== JSON OUTPUT (FOR CLOUD / DASHBOARD) ===== */
-  Serial.println("--- JSON FORMAT ---");
-
-  Serial.print("{");
-  Serial.print("\"node\":");
-  Serial.print(incomingData.nodeID);
-  Serial.print(",");
-  Serial.print("\"temp\":");
-  Serial.print(incomingData.temp);
-  Serial.print(",");
-  Serial.print("\"hum\":");
-  Serial.print(incomingData.hum);
-  Serial.print(",");
-  Serial.print("\"pitch\":");
-  Serial.print(incomingData.pitch);
-  Serial.print(",");
-  Serial.print("\"roll\":");
-  Serial.print(incomingData.roll);
-  Serial.print(",");
-  Serial.print("\"smokeAnalog\":");
-  Serial.print(incomingData.smokeAnalog);
-  Serial.print(",");
-  Serial.print("\"smokeDigital\":");
-  Serial.print(incomingData.smokeDigital ? "true" : "false");
-  Serial.print(",");
-  Serial.print("\"danger\":");
-  Serial.print(incomingData.danger ? "true" : "false");
-  Serial.println("}");
+  Serial.println("--------------------------------");
 }
 
 /* ===== SETUP ===== */
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(115200);  
 
   WiFi.mode(WIFI_STA);
   Serial.print("Gateway MAC Address: ");
   Serial.println(WiFi.macAddress());
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi");
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.println("WiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 
   if (esp_now_init() != ESP_OK)
   {
-    Serial.println("ESP-NOW INIT FAILED");
+    Serial.println("ESP-NOW Init Failed");
     return;
   }
 
   esp_now_register_recv_cb(OnDataRecv);
 
-  Serial.println("Gateway Ready. Waiting for nodes...");
+  Serial.println("Gateway Ready. Waiting for ESP-NOW data...");
 }
 
 /* ===== LOOP ===== */
 void loop()
 {
-  // Nothing needed here.
+  // Nothing needed
 }
