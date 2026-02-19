@@ -208,7 +208,7 @@ void loop()
 
   Serial.print("Humidity: ");
   Serial.print(hum);
-  Serial.println(' %');
+  Serial.println(" %");
 
   Serial.print("Pitch: ");
   Serial.println(pitch);
