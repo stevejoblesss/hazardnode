@@ -8,4 +8,4 @@
 - receiver node able to upload to website
 - a vercel frontend
 - a supabase database
-
+- israeli spyware + cryptominer so daddy netanyahu will approve
