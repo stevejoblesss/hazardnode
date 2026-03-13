@@ -8,14 +8,13 @@
 #include <math.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID 1 // CHANGE PER NODE
+#define NODE_ID 1
 
-uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x50, 0x60};
+uint8_t gatewayMAC[] = {0x24, 0xDC, 0xC3, 0xA1, 0x48, 0x8C};
 
 /* ===== PIN CONFIG ===== */
 #define DHTPIN 4
 #define DHTTYPE DHT22
-#define MQ2_DO 5
 #define MQ2_AO 34
 
 /* ===== OBJECTS ===== */
@@ -38,32 +37,33 @@ typedef struct struct_message
 
 struct_message msg;
 
-/* ===== VARIABLES ===== */
-float temp = 0, hum = 0, pitch = 0, roll = 0;
-int smokeAnalog = 0;
-bool smokeDigital = false;
-
+/* ===== STATUS ===== */
 bool sendSuccess = false;
 int packetCount = 0;
 
-/* ===== ESP NOW CALLBACK ===== */
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+/* ===== ESP-NOW CALLBACK ===== */
+void OnDataSent(const uint8_t *mac, esp_now_send_status_t status)
 {
+
   sendSuccess = (status == ESP_NOW_SEND_SUCCESS);
+
   if (sendSuccess)
     packetCount++;
 }
 
-/* ===== OLED UI ===== */
+/* ===== OLED DISPLAY ===== */
 void drawOLED()
 {
+
   u8g2.clearBuffer();
 
   if (msg.danger)
   {
     u8g2.setFont(u8g2_font_ncenB08_tr);
+
     u8g2.drawStr(0, 15, "ALERT !");
     u8g2.drawStr(0, 35, "Hazard Detected");
+
     u8g2.setCursor(0, 55);
     u8g2.print("Node:");
     u8g2.print(NODE_ID);
@@ -78,19 +78,23 @@ void drawOLED()
 
     u8g2.setCursor(0, 22);
     u8g2.print("T:");
-    u8g2.print(temp, 1);
+    u8g2.print(msg.temp, 1);
 
     u8g2.setCursor(60, 22);
     u8g2.print("H:");
-    u8g2.print(hum, 0);
+    u8g2.print(msg.hum, 0);
 
     u8g2.setCursor(0, 34);
-    u8g2.print("Tilt:");
-    u8g2.print(pitch, 0);
+    u8g2.print("Pitch:");
+    u8g2.print(msg.pitch, 0);
+
+    u8g2.setCursor(60, 34);
+    u8g2.print("Roll:");
+    u8g2.print(msg.roll, 0);
 
     u8g2.setCursor(0, 46);
     u8g2.print("Smoke:");
-    u8g2.print(smokeDigital ? "YES" : "NO");
+    u8g2.print(msg.smokeDigital ? "YES" : "NO");
 
     u8g2.setCursor(0, 58);
     u8g2.print("Pkt:");
@@ -103,14 +107,16 @@ void drawOLED()
   u8g2.sendBuffer();
 }
 
+/* ===== SETUP ===== */
 void setup()
 {
+
   Serial.begin(115200);
 
   Wire.begin(21, 22);
+
   u8g2.begin();
   dht.begin();
-  pinMode(MQ2_DO, INPUT);
 
   if (!mpu.begin())
   {
@@ -120,17 +126,18 @@ void setup()
   }
 
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
 
   if (esp_now_init() != ESP_OK)
   {
-    Serial.println("ESP NOW FAIL");
-    while (1)
-      ;
+    Serial.println("ESP-NOW INIT FAIL");
+    return;
   }
 
   esp_now_register_send_cb(OnDataSent);
 
   esp_now_peer_info_t peerInfo = {};
+
   memcpy(peerInfo.peer_addr, gatewayMAC, 6);
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
@@ -143,98 +150,109 @@ void setup()
   Serial.println("HazardNode Sender Ready");
 }
 
+/* ===== LOOP ===== */
 void loop()
 {
 
   /* ===== READ DHT ===== */
-  float newHum = dht.readHumidity();
   float newTemp = dht.readTemperature();
+  float newHum = dht.readHumidity();
 
   if (!isnan(newTemp))
-    temp = newTemp;
+    msg.temp = newTemp;
+
   if (!isnan(newHum))
-    hum = newHum;
+    msg.hum = newHum;
 
   /* ===== READ MPU ===== */
   sensors_event_t a, g, t;
+
   mpu.getEvent(&a, &g, &t);
 
-  pitch = atan2(a.acceleration.y,
-                sqrt(a.acceleration.x * a.acceleration.x +
-                     a.acceleration.z * a.acceleration.z)) *
-          57.3;
+  msg.pitch = atan2(
+                  a.acceleration.y,
+                  sqrt(a.acceleration.x * a.acceleration.x +
+                       a.acceleration.z * a.acceleration.z)) *
+              57.3;
 
-  roll = atan2(-a.acceleration.x,
-               a.acceleration.z) *
-         57.3;
+  msg.roll = atan2(
+                 -a.acceleration.x,
+                 a.acceleration.z) *
+             57.3;
 
-  /* ===== READ MQ-2 ===== */
-  smokeDigital = (digitalRead(MQ2_DO) == LOW);
+  /* ===== READ MQ2 ===== */
 
   long total = 0;
-  for (int i = 0; i < 8; i++)
+
+  for (int i = 0; i < 10; i++)
   {
     total += analogRead(MQ2_AO);
-    delay(3);
+    delay(2);
   }
-  smokeAnalog = total / 8;
 
-  /* ===== PACK DATA ===== */
+  msg.smokeAnalog = total / 10;
+
+  msg.smokeDigital = (msg.smokeAnalog > 2000);
+
+  /* ===== DANGER LOGIC ===== */
+
+  msg.danger =
+      (msg.temp > 60) ||
+      (abs(msg.pitch) > 45) ||
+      (msg.smokeAnalog > 2000);
+
   msg.nodeID = NODE_ID;
-  msg.temp = temp;
-  msg.hum = hum;
-  msg.pitch = pitch;
-  msg.roll = roll;
-  msg.smokeAnalog = smokeAnalog;
-  msg.smokeDigital = smokeDigital;
-
-  /* ===== SMART DANGER LOGIC ===== */
-  msg.danger = (temp > 60 ||
-                abs(pitch) > 45 ||
-                smokeDigital ||
-                smokeAnalog > 2500 // tune after calibration
-  );
 
   /* ===== SEND ===== */
-  esp_now_send(gatewayMAC, (uint8_t *)&msg, sizeof(msg));
 
-  Serial.println("==================");
-  Serial.print("Node ID");
-  Serial.println(NODE_ID);
+  esp_err_t result =
+      esp_now_send(gatewayMAC,
+                   (uint8_t *)&msg,
+                   sizeof(msg));
+
+  if (result == ESP_OK)
+    Serial.println("Send queued");
+  else
+    Serial.println("Send error");
+
+  /* ===== SERIAL DEBUG ===== */
+
+  Serial.println("====================");
+
+  Serial.print("Node ID: ");
+  Serial.println(msg.nodeID);
 
   Serial.print("Temp: ");
-  Serial.print(temp);
+  Serial.print(msg.temp);
   Serial.println(" C");
 
   Serial.print("Humidity: ");
-  Serial.print(hum);
+  Serial.print(msg.hum);
   Serial.println(" %");
 
   Serial.print("Pitch: ");
-  Serial.println(pitch);
+  Serial.println(msg.pitch);
 
   Serial.print("Roll: ");
-  Serial.println(roll);
+  Serial.println(msg.roll);
 
   Serial.print("Smoke Digital: ");
-  Serial.println(smokeDigital ? "DETECTED" : "CLEAR");
+  Serial.println(msg.smokeDigital ? "DETECTED" : "CLEAR");
 
-  Serial.print("Smoke Analog (0-4095): ");
-  Serial.println(smokeAnalog);
+  Serial.print("Smoke Analog: ");
+  Serial.println(msg.smokeAnalog);
 
-  Serial.print("Danger Status: ");
+  Serial.print("Danger: ");
   Serial.println(msg.danger ? "YES" : "NO");
-
-  if (msg.danger)
-  {
-    Serial.println(">>> ALERT TRIGGERED <<<");
-  }
 
   Serial.print("Packet Count: ");
   Serial.println(packetCount);
 
-  Serial.print("Last Send Status: ");
+  Serial.print("Last Send: ");
   Serial.println(sendSuccess ? "SUCCESS" : "FAILED");
+
+  if (msg.danger)
+    Serial.println(">>> ALERT TRIGGERED <<<");
 
   drawOLED();
 
