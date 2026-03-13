@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 /* WIFI */
 const char *ssid = "Unicorn2012";
@@ -24,16 +25,38 @@ typedef struct struct_message
 } struct_message;
 
 struct_message data;
+volatile bool newDataAvailable = false;
 
 /* RECEIVE CALLBACK */
-void OnDataRecv(const uint8_t *mac,
-                const uint8_t *incomingData,
-                int len)
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
 {
+#else
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
+{
+#endif
+
+  if (len != sizeof(data))
+  {
+    Serial.println("Invalid packet length");
+    return;
+  }
 
   memcpy(&data, incomingData, sizeof(data));
+  newDataAvailable = true;
 
-  Serial.println("Packet received");
+  Serial.print("Packet received from Node: ");
+  Serial.println(data.nodeID);
+}
+
+void uploadData()
+{
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("WiFi Disconnected, attempting to reconnect...");
+    WiFi.begin(ssid, password);
+    return;
+  }
 
   String json = "{";
   json += "\"nodeID\":" + String(data.nodeID) + ",";
@@ -46,45 +69,87 @@ void OnDataRecv(const uint8_t *mac,
   json += "\"danger\":" + String(data.danger ? "true" : "false");
   json += "}";
 
+  Serial.println("Uploading to Vercel...");
   Serial.println(json);
 
-  if (WiFi.status() == WL_CONNECTED)
+  WiFiClientSecure client;
+  client.setInsecure(); // Required for Vercel HTTPS without certificate management
+
+  HTTPClient http;
+
+  // Set timeout to 5 seconds
+  http.setTimeout(5000);
+
+  if (http.begin(client, serverURL))
   {
-
-    HTTPClient http;
-
-    http.begin(serverURL);
     http.addHeader("Content-Type", "application/json");
+    http.addHeader("Host", "hazardnode-dashboard.vercel.app");
 
     int httpResponseCode = http.POST(json);
 
-    Serial.print("HTTP Response: ");
-    Serial.println(httpResponseCode);
-
+    if (httpResponseCode > 0)
+    {
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+      if (httpResponseCode == 200 || httpResponseCode == 201)
+      {
+        Serial.println("Upload Success!");
+      }
+      else
+      {
+        String response = http.getString();
+        Serial.println("Response body: " + response);
+      }
+    }
+    else
+    {
+      Serial.print("HTTP Error code: ");
+      Serial.println(httpResponseCode);
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpResponseCode).c_str());
+      
+      if (httpResponseCode == -1) {
+          Serial.println("TIP: 'Connection Refused' usually means the ESP32 can't reach the server.");
+          Serial.println("Try pinging 'hazardnode-dashboard.vercel.app' from your PC to ensure the site is up.");
+      }
+    }
     http.end();
+  }
+  else
+  {
+    Serial.println("[HTTP] Unable to connect to server");
   }
 }
 
 /* SETUP */
 void setup()
 {
-
   Serial.begin(115200);
 
   WiFi.mode(WIFI_STA);
-
   Serial.print("Gateway MAC: ");
   Serial.println(WiFi.macAddress());
 
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED)
+  unsigned long startAttemptTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000)
   {
     delay(500);
     Serial.print(".");
   }
 
-  Serial.println("\nWiFi Connected");
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("\nWiFi Connected");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  }
+  else
+  {
+    Serial.println("\nWiFi Connection Failed (Timeout)");
+  }
+
+  WiFi.setSleep(false); // Disable WiFi power save for ESP-NOW
 
   if (esp_now_init() != ESP_OK)
   {
@@ -93,8 +158,27 @@ void setup()
   }
 
   esp_now_register_recv_cb(OnDataRecv);
-
   Serial.println("Gateway Ready");
 }
 
-void loop() {}
+void loop()
+{
+  if (newDataAvailable)
+  {
+    uploadData();
+    newDataAvailable = false;
+  }
+
+  // Periodic WiFi check every 30 seconds
+  static unsigned long lastWiFiCheck = 0;
+  if (millis() - lastWiFiCheck > 30000)
+  {
+    lastWiFiCheck = millis();
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      Serial.println("Reconnecting WiFi...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+    }
+  }
+}

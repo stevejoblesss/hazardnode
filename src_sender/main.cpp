@@ -10,7 +10,13 @@
 /* ===== NODE CONFIG ===== */
 #define NODE_ID 1
 
-uint8_t gatewayMAC[] = {0x24, 0xDC, 0xC3, 0xA1, 0x48, 0x8C};
+// Update this to match your receiver's MAC address!
+// You can find it by looking at the Serial monitor of the receiver.
+uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x50, 0x60};
+
+// Set this to true to broadcast to ALL nearby receivers (for testing)
+bool useBroadcast = false;
+uint8_t broadcastMAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 /* ===== PIN CONFIG ===== */
 #define DHTPIN 4
@@ -44,6 +50,8 @@ int packetCount = 0;
 /* ===== ESP-NOW CALLBACK ===== */
 void OnDataSent(const uint8_t *mac, esp_now_send_status_t status)
 {
+  Serial.print("Last Packet Send Status: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 
   sendSuccess = (status == ESP_NOW_SEND_SUCCESS);
 
@@ -107,6 +115,33 @@ void drawOLED()
   u8g2.sendBuffer();
 }
 
+/* ===== WIFI SCAN ===== */
+#include <esp_wifi.h>
+
+int32_t getWiFiChannel(const char *ssid)
+{
+  Serial.print("Scanning for WiFi channel of SSID: ");
+  Serial.println(ssid);
+
+  int32_t n = WiFi.scanNetworks();
+  if (n > 0)
+  {
+    for (uint8_t i = 0; i < n; i++)
+    {
+      if (!strcmp(ssid, WiFi.SSID(i).c_str()))
+      {
+        int32_t ch = WiFi.channel(i);
+        Serial.print("Found channel: ");
+        Serial.println(ch);
+        return ch;
+      }
+    }
+  }
+
+  Serial.println("SSID not found. Defaulting to channel 1.");
+  return 1;
+}
+
 /* ===== SETUP ===== */
 void setup()
 {
@@ -126,7 +161,12 @@ void setup()
   }
 
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+
+  int32_t channel = getWiFiChannel("Unicorn2012");
+  esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+
+  Serial.print("WiFi Channel: ");
+  Serial.println(WiFi.channel());
 
   if (esp_now_init() != ESP_OK)
   {
@@ -138,8 +178,16 @@ void setup()
 
   esp_now_peer_info_t peerInfo = {};
 
-  memcpy(peerInfo.peer_addr, gatewayMAC, 6);
-  peerInfo.channel = 0;
+  if (useBroadcast)
+  {
+    memcpy(peerInfo.peer_addr, broadcastMAC, 6);
+  }
+  else
+  {
+    memcpy(peerInfo.peer_addr, gatewayMAC, 6);
+  }
+
+  peerInfo.channel = channel;
   peerInfo.encrypt = false;
 
   if (esp_now_add_peer(&peerInfo) != ESP_OK)
@@ -148,6 +196,19 @@ void setup()
   }
 
   Serial.println("HazardNode Sender Ready");
+  if (useBroadcast)
+    Serial.println("BROADCAST MODE ON");
+  else
+  {
+    Serial.print("Target MAC: ");
+    for (int i = 0; i < 6; i++)
+    {
+      Serial.printf("%02X", gatewayMAC[i]);
+      if (i < 5)
+        Serial.print(":");
+    }
+    Serial.println();
+  }
 }
 
 /* ===== LOOP ===== */
@@ -206,7 +267,7 @@ void loop()
   /* ===== SEND ===== */
 
   esp_err_t result =
-      esp_now_send(gatewayMAC,
+      esp_now_send(useBroadcast ? broadcastMAC : gatewayMAC,
                    (uint8_t *)&msg,
                    sizeof(msg));
 
