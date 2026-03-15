@@ -46,7 +46,14 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
   newDataAvailable = true;
 
   Serial.print("Packet received from Node: ");
-  Serial.println(data.nodeID);
+  Serial.print(data.nodeID);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  Serial.print(" | ESP-NOW RSSI: ");
+  Serial.print(info->rx_ctrl->rssi);
+  Serial.println(" dBm");
+#else
+  Serial.println();
+#endif
 }
 
 void uploadData()
@@ -70,6 +77,9 @@ void uploadData()
   json += "}";
 
   Serial.println("Uploading to Vercel...");
+  Serial.print("WiFi Signal Strength (RSSI): ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
   Serial.println(json);
 
   WiFiClientSecure client;
@@ -174,7 +184,13 @@ void loop()
   if (millis() - lastWiFiCheck > 30000)
   {
     lastWiFiCheck = millis();
-    if (WiFi.status() != WL_CONNECTED)
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      Serial.print("WiFi RSSI: ");
+      Serial.print(WiFi.RSSI());
+      Serial.println(" dBm");
+    }
+    else
     {
       Serial.println("Reconnecting WiFi...");
       WiFi.disconnect();

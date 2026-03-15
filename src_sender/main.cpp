@@ -131,8 +131,12 @@ int32_t getWiFiChannel(const char *ssid)
       if (!strcmp(ssid, WiFi.SSID(i).c_str()))
       {
         int32_t ch = WiFi.channel(i);
+        int32_t rssi = WiFi.RSSI(i);
         Serial.print("Found channel: ");
-        Serial.println(ch);
+        Serial.print(ch);
+        Serial.print(" | Signal (RSSI): ");
+        Serial.print(rssi);
+        Serial.println(" dBm");
         return ch;
       }
     }
