@@ -15,7 +15,6 @@ const char *serverURL =
 typedef struct __attribute__((packed)) struct_message
 {
   int nodeID;
-  uint32_t seq;
   float temp;
   float hum;
   float pitch;
@@ -28,18 +27,14 @@ typedef struct __attribute__((packed)) struct_message
 
 struct_message data;
 volatile bool newDataAvailable = false;
-uint32_t lastSeq = 0;
-int lastRSSI = 0;
 
 /* RECEIVE CALLBACK */
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
 {
-  int currentRSSI = info->rx_ctrl->rssi;
 #else
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
-  int currentRSSI = 0; // Not easily available in older versions
 #endif
 
   if (len != sizeof(data))
@@ -48,31 +43,14 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
     Serial.print(len);
     Serial.print(", expected ");
     Serial.println(sizeof(data));
-    Serial.println("TIP: Ensure BOTH sender and receiver are running the latest code!");
     return;
   }
 
-  struct_message tempMsg;
-  memcpy(&tempMsg, incomingData, sizeof(tempMsg));
-
-  if (tempMsg.seq == lastSeq)
-  {
-    Serial.println("Duplicate packet ignored");
-    return;
-  }
-
-  data = tempMsg;
-  lastSeq = data.seq;
-  lastRSSI = currentRSSI;
+  memcpy(&data, incomingData, sizeof(data));
   newDataAvailable = true;
 
   Serial.print("Packet received from Node: ");
-  Serial.print(data.nodeID);
-  Serial.print(" | Seq: ");
-  Serial.print(data.seq);
-  Serial.print(" | RSSI: ");
-  Serial.print(currentRSSI);
-  Serial.println(" dBm");
+  Serial.println(data.nodeID);
 }
 
 void uploadData()
@@ -93,12 +71,12 @@ void uploadData()
   json += "\"smokeAnalog\":" + String(data.smokeAnalog) + ",";
   json += "\"smokeDigital\":" + String(data.smokeDigital ? "true" : "false") + ",";
   json += "\"danger\":" + String(data.danger ? "true" : "false") + ",";
-  json += "\"rssi\":" + String(lastRSSI);
+  json += "\"rssi\":" + String(data.rssi);
   json += "}";
 
   Serial.println("Uploading to Vercel...");
-  Serial.print("WiFi Signal Strength (RSSI): ");
-  Serial.print(WiFi.RSSI());
+  Serial.print("Node RSSI: ");
+  Serial.print(data.rssi);
   Serial.println(" dBm");
   Serial.println(json);
 

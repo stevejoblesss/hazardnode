@@ -32,7 +32,6 @@ U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 typedef struct __attribute__((packed)) struct_message
 {
   int nodeID;
-  uint32_t seq;
   float temp;
   float hum;
   float pitch;
@@ -44,7 +43,7 @@ typedef struct __attribute__((packed)) struct_message
 } struct_message;
 
 struct_message msg;
-uint32_t currentSeq = 0;
+int32_t scannedRSSI = 0;
 
 /* ===== STATUS ===== */
 bool sendSuccess = false;
@@ -134,11 +133,11 @@ int32_t getWiFiChannel(const char *ssid)
       if (!strcmp(ssid, WiFi.SSID(i).c_str()))
       {
         int32_t ch = WiFi.channel(i);
-        int32_t rssi = WiFi.RSSI(i);
+        scannedRSSI = WiFi.RSSI(i);
         Serial.print("Found channel: ");
         Serial.print(ch);
         Serial.print(" | Signal (RSSI): ");
-        Serial.print(rssi);
+        Serial.print(scannedRSSI);
         Serial.println(" dBm");
         return ch;
       }
@@ -270,7 +269,7 @@ void loop()
       (msg.smokeAnalog > 2000);
 
   msg.nodeID = NODE_ID;
-  msg.seq = ++currentSeq;
+  msg.rssi = scannedRSSI;
 
   /* ===== SEND ===== */
 
@@ -313,6 +312,10 @@ void loop()
 
   Serial.print("Danger: ");
   Serial.println(msg.danger ? "YES" : "NO");
+
+  Serial.print("Node RSSI: ");
+  Serial.print(msg.rssi);
+  Serial.println(" dBm");
 
   Serial.print("Packet Count: ");
   Serial.println(packetCount);
