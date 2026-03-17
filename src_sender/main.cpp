@@ -32,6 +32,7 @@ U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 typedef struct struct_message
 {
   int nodeID;
+  uint32_t seq;
   float temp;
   float hum;
   float pitch;
@@ -39,9 +40,11 @@ typedef struct struct_message
   int smokeAnalog;
   bool smokeDigital;
   bool danger;
+  int rssi;
 } struct_message;
 
 struct_message msg;
+uint32_t currentSeq = 0;
 
 /* ===== STATUS ===== */
 bool sendSuccess = false;
@@ -267,6 +270,7 @@ void loop()
       (msg.smokeAnalog > 2000);
 
   msg.nodeID = NODE_ID;
+  msg.seq = ++currentSeq;
 
   /* ===== SEND ===== */
 

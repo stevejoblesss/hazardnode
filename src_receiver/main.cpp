@@ -15,6 +15,7 @@ const char *serverURL =
 typedef struct struct_message
 {
   int nodeID;
+  uint32_t seq;
   float temp;
   float hum;
   float pitch;
@@ -22,18 +23,23 @@ typedef struct struct_message
   int smokeAnalog;
   bool smokeDigital;
   bool danger;
+  int rssi;
 } struct_message;
 
 struct_message data;
 volatile bool newDataAvailable = false;
+uint32_t lastSeq = 0;
+int lastRSSI = 0;
 
 /* RECEIVE CALLBACK */
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
 {
+  int currentRSSI = info->rx_ctrl->rssi;
 #else
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
+  int currentRSSI = 0; // Not easily available in older versions
 #endif
 
   if (len != sizeof(data))
@@ -42,18 +48,27 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
     return;
   }
 
-  memcpy(&data, incomingData, sizeof(data));
+  struct_message tempMsg;
+  memcpy(&tempMsg, incomingData, sizeof(tempMsg));
+
+  if (tempMsg.seq == lastSeq)
+  {
+    Serial.println("Duplicate packet ignored");
+    return;
+  }
+
+  data = tempMsg;
+  lastSeq = data.seq;
+  lastRSSI = currentRSSI;
   newDataAvailable = true;
 
   Serial.print("Packet received from Node: ");
   Serial.print(data.nodeID);
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-  Serial.print(" | ESP-NOW RSSI: ");
-  Serial.print(info->rx_ctrl->rssi);
+  Serial.print(" | Seq: ");
+  Serial.print(data.seq);
+  Serial.print(" | RSSI: ");
+  Serial.print(currentRSSI);
   Serial.println(" dBm");
-#else
-  Serial.println();
-#endif
 }
 
 void uploadData()
@@ -73,7 +88,8 @@ void uploadData()
   json += "\"roll\":" + String(data.roll, 2) + ",";
   json += "\"smokeAnalog\":" + String(data.smokeAnalog) + ",";
   json += "\"smokeDigital\":" + String(data.smokeDigital ? "true" : "false") + ",";
-  json += "\"danger\":" + String(data.danger ? "true" : "false");
+  json += "\"danger\":" + String(data.danger ? "true" : "false") + ",";
+  json += "\"rssi\":" + String(lastRSSI);
   json += "}";
 
   Serial.println("Uploading to Vercel...");
