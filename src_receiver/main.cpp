@@ -12,7 +12,7 @@ const char *serverURL =
     "https://hazardnode-dashboard.vercel.app/api/node";
 
 /* STRUCT */
-typedef struct struct_message
+typedef struct __attribute__((packed)) struct_message
 {
   int nodeID;
   uint32_t seq;
@@ -44,7 +44,11 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 
   if (len != sizeof(data))
   {
-    Serial.println("Invalid packet length");
+    Serial.print("Invalid packet length: received ");
+    Serial.print(len);
+    Serial.print(", expected ");
+    Serial.println(sizeof(data));
+    Serial.println("TIP: Ensure BOTH sender and receiver are running the latest code!");
     return;
   }
 

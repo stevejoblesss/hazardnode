@@ -29,7 +29,7 @@ Adafruit_MPU6050 mpu;
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
 /* ===== DATA STRUCT ===== */
-typedef struct struct_message
+typedef struct __attribute__((packed)) struct_message
 {
   int nodeID;
   uint32_t seq;
