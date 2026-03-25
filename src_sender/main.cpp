@@ -39,7 +39,7 @@ Adafruit_MPU6050 mpu;
 // U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
 // 2. New SPI SSD1309
-U8G2_SSD1309_128X64_NONAME0_F_4W_HW_SPI u8g2(U8G2_R0, OLED_CS, OLED_DC, OLED_RES);
+U8G2_SSD1309_128X64_NONAME0_F_4W_SW_SPI u8g2(U8G2_R0, OLED_SCK, OLED_MOSI, OLED_CS, OLED_DC, OLED_RES);
 
 /* ===== DATA STRUCT ===== */
 typedef struct __attribute__((packed)) struct_message
@@ -168,6 +168,10 @@ void setup()
 
   Serial.begin(115200);
 
+  // Calibration for MQ2 Sensor (Warm-up period)
+  Serial.println("MQ2 Sensor Warming Up (5 seconds)...");
+  delay(5000); 
+
   Wire.begin(21, 22);
 
   u8g2.begin();
@@ -265,22 +269,24 @@ void loop()
 
   long total = 0;
 
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 20; i++) // Increased samples for smoother reading
   {
     total += analogRead(MQ2_AO);
-    delay(2);
+    delay(5); // Slightly more delay between samples
   }
 
-  msg.smokeAnalog = total / 10;
+  msg.smokeAnalog = total / 20;
 
-  msg.smokeDigital = (msg.smokeAnalog > 2000);
+  // Threshold check - MQ2 reading on ESP32 can be high if it's 12-bit (0-4095)
+  // Adjust threshold if it's too sensitive for your environment
+  msg.smokeDigital = (msg.smokeAnalog > 2500); 
 
   /* ===== DANGER LOGIC ===== */
 
   msg.danger =
       (msg.temp > 60) ||
       (abs(msg.pitch) > 45) ||
-      (msg.smokeAnalog > 2000);
+      (msg.smokeAnalog > 2500);
 
   msg.nodeID = NODE_ID;
   msg.rssi = scannedRSSI;
