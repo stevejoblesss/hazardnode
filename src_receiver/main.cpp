@@ -4,8 +4,8 @@
 #include <WiFiClientSecure.h>
 
 /* WIFI */
-const char *ssid = "Unicorn2012";
-const char *password = "Finance@5408";
+const char *ssid = "CLPHS_Admin";
+const char *password = "CLP8283655";
 
 /* API ENDPOINT */
 const char *serverURL =
@@ -62,6 +62,8 @@ void uploadData()
     return;
   }
 
+  int currentWiFiRSSI = WiFi.RSSI();
+
   String json = "{";
   json += "\"nodeID\":" + String(data.nodeID) + ",";
   json += "\"temp\":" + String(data.temp, 2) + ",";
@@ -71,12 +73,14 @@ void uploadData()
   json += "\"smokeAnalog\":" + String(data.smokeAnalog) + ",";
   json += "\"smokeDigital\":" + String(data.smokeDigital ? "true" : "false") + ",";
   json += "\"danger\":" + String(data.danger ? "true" : "false") + ",";
-  json += "\"rssi\":" + String(data.rssi);
+  json += "\"rssi\":" + String(currentWiFiRSSI);
   json += "}";
 
   Serial.println("Uploading to Vercel...");
   Serial.print("Node RSSI: ");
   Serial.print(data.rssi);
+  Serial.print(" dBm | Gateway WiFi RSSI: ");
+  Serial.print(currentWiFiRSSI);
   Serial.println(" dBm");
   Serial.println(json);
 

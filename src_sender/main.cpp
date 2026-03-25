@@ -23,10 +23,23 @@ uint8_t broadcastMAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #define DHTTYPE DHT22
 #define MQ2_AO 34
 
+// SPI Pins for SSD1309 (if used)
+#define OLED_SCK 18
+#define OLED_MOSI 23
+#define OLED_RES 16
+#define OLED_DC 17
+#define OLED_CS 5
+
 /* ===== OBJECTS ===== */
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_MPU6050 mpu;
-U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
+
+// UNCOMMENT ONLY ONE:
+// 1. Existing I2C SH1106
+// U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
+
+// 2. New SPI SSD1309
+U8G2_SSD1309_128X64_NONAME0_F_4W_HW_SPI u8g2(U8G2_R0, OLED_CS, OLED_DC, OLED_RES);
 
 /* ===== DATA STRUCT ===== */
 typedef struct __attribute__((packed)) struct_message
@@ -110,8 +123,9 @@ void drawOLED()
     u8g2.print("Pkt:");
     u8g2.print(packetCount);
 
-    u8g2.setCursor(70, 58);
-    u8g2.print(sendSuccess ? "OK" : "FAIL");
+    u8g2.setCursor(65, 58);
+    u8g2.print("R:");
+    u8g2.print(scannedRSSI);
   }
 
   u8g2.sendBuffer();
@@ -282,6 +296,14 @@ void loop()
     Serial.println("Send queued");
   else
     Serial.println("Send error");
+
+  // Periodic WiFi scan every 30 seconds to update RSSI
+  static unsigned long lastScanTime = 0;
+  if (millis() - lastScanTime > 30000)
+  {
+    lastScanTime = millis();
+    getWiFiChannel("Unicorn2012");
+  }
 
   /* ===== SERIAL DEBUG ===== */
 
