@@ -83,12 +83,25 @@ void drawOLED()
   if (msg.danger)
   {
     u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(0, 15, "!!! ALERT !!!");
 
-    u8g2.drawStr(0, 15, "ALERT !");
-    u8g2.drawStr(0, 35, "Hazard Detected");
+    u8g2.setFont(u8g2_font_ncenB12_tr);
+    if (abs(msg.pitch) > 45)
+    {
+      u8g2.drawStr(0, 40, "COLLAPSE!");
+    }
+    else if (msg.smokeAnalog > 2500 || msg.temp > 60)
+    {
+      u8g2.drawStr(0, 40, "FIRE/SMOKE");
+    }
+    else
+    {
+      u8g2.drawStr(0, 40, "HAZARD!");
+    }
 
-    u8g2.setCursor(0, 55);
-    u8g2.print("Node:");
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.setCursor(0, 60);
+    u8g2.print("Node ID: ");
     u8g2.print(NODE_ID);
   }
   else
