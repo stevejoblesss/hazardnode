@@ -91,8 +91,8 @@ void drawOLED()
     u8g2.drawStr(0, 15, "!!! ALERT !!!");
 
     u8g2.setFont(u8g2_font_ncenB12_tr);
-    float pitchDev = abs(msg.pitch - SAFE_PITCH);
-    float rollDev = abs(msg.roll - SAFE_ROLL);
+    float pitchDev = abs(msg.pitch);
+    float rollDev = abs(msg.roll);
 
     if (pitchDev > TILT_THRESHOLD || rollDev > TILT_THRESHOLD)
     {
@@ -275,16 +275,18 @@ void loop()
 
   mpu.getEvent(&a, &g, &t);
 
-  msg.pitch = atan2(
-                  a.acceleration.y,
-                  sqrt(a.acceleration.x * a.acceleration.x +
-                       a.acceleration.z * a.acceleration.z)) *
-              57.3;
+  msg.pitch = (atan2(
+                   a.acceleration.y,
+                   sqrt(a.acceleration.x * a.acceleration.x +
+                        a.acceleration.z * a.acceleration.z)) *
+               57.3) -
+              SAFE_PITCH;
 
-  msg.roll = atan2(
-                 -a.acceleration.x,
-                 a.acceleration.z) *
-             57.3;
+  msg.roll = (atan2(
+                  -a.acceleration.x,
+                  a.acceleration.z) *
+              57.3) -
+             SAFE_ROLL;
 
   /* ===== READ MQ2 ===== */
 
@@ -304,8 +306,8 @@ void loop()
 
   /* ===== DANGER LOGIC ===== */
 
-  float pitchDev = abs(msg.pitch - SAFE_PITCH);
-  float rollDev = abs(msg.roll - SAFE_ROLL);
+  float pitchDev = abs(msg.pitch);
+  float rollDev = abs(msg.roll);
 
   msg.danger =
       (msg.temp > 60) ||
@@ -351,10 +353,10 @@ void loop()
   Serial.print(msg.hum);
   Serial.println(" %");
 
-  Serial.print("Pitch: ");
+  Serial.print("Pitch (Relative): ");
   Serial.println(msg.pitch);
 
-  Serial.print("Roll: ");
+  Serial.print("Roll (Relative): ");
   Serial.println(msg.roll);
 
   Serial.print("Smoke Digital: ");
