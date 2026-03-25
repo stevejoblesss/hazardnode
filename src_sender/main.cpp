@@ -26,9 +26,9 @@ uint8_t broadcastMAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // SPI Pins for SSD1309 (if used)
 #define OLED_SCK 18
 #define OLED_MOSI 23
-#define OLED_RES 16
-#define OLED_DC 17
-#define OLED_CS 5
+#define OLED_RES 17
+#define OLED_DC 16
+#define OLED_CS 15
 
 /* ===== OBJECTS ===== */
 DHT dht(DHTPIN, DHTTYPE);
