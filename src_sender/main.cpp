@@ -10,6 +10,11 @@
 /* ===== NODE CONFIG ===== */
 #define NODE_ID 1
 
+// Safe angle calibration (where the node is mounted/resting)
+#define SAFE_PITCH -67.0
+#define SAFE_ROLL 0.0
+#define TILT_THRESHOLD 30.0 // Degrees of deviation before triggering alert
+
 // Update this to match your receiver's MAC address!
 // You can find it by looking at the Serial monitor of the receiver.
 uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x50, 0x60};
@@ -86,7 +91,10 @@ void drawOLED()
     u8g2.drawStr(0, 15, "!!! ALERT !!!");
 
     u8g2.setFont(u8g2_font_ncenB12_tr);
-    if (abs(msg.pitch) > 45)
+    float pitchDev = abs(msg.pitch - SAFE_PITCH);
+    float rollDev = abs(msg.roll - SAFE_ROLL);
+
+    if (pitchDev > TILT_THRESHOLD || rollDev > TILT_THRESHOLD)
     {
       u8g2.drawStr(0, 40, "COLLAPSE!");
     }
@@ -296,9 +304,13 @@ void loop()
 
   /* ===== DANGER LOGIC ===== */
 
+  float pitchDev = abs(msg.pitch - SAFE_PITCH);
+  float rollDev = abs(msg.roll - SAFE_ROLL);
+
   msg.danger =
       (msg.temp > 60) ||
-      (abs(msg.pitch) > 45) ||
+      (pitchDev > TILT_THRESHOLD) ||
+      (rollDev > TILT_THRESHOLD) ||
       (msg.smokeAnalog > 2500);
 
   msg.nodeID = NODE_ID;
