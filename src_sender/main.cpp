@@ -17,7 +17,7 @@
 
 // Update this to match your receiver's MAC address!
 // You can find it by looking at the Serial monitor of the receiver.
-uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x50, 0x60};
+uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x4F, 0x68};
 
 // Set this to true to broadcast to ALL nearby receivers (for testing)
 bool useBroadcast = false;
