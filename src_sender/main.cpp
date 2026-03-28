@@ -8,7 +8,7 @@
 #include <math.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID 1
+#define NODE_ID 2
 
 // Safe angle calibration (where the node is mounted/resting)
 #define SAFE_PITCH -67.0
