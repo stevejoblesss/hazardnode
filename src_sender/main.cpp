@@ -8,7 +8,7 @@
 #include <math.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID 2
+#define NODE_ID 3
 
 // Safe angle calibration (where the node is mounted/resting)
 #define SAFE_PITCH -67.0
@@ -207,7 +207,7 @@ void setup()
 
   WiFi.mode(WIFI_STA);
 
-  int32_t channel = getWiFiChannel("Unicorn2012");
+  int32_t channel = getWiFiChannel("Unicorn2012"); // change to what wifi channel u on
   esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
 
   Serial.print("WiFi Channel: ");
