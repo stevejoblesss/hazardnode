@@ -4,8 +4,8 @@
 #include <WiFiClientSecure.h>
 
 /* WIFI */
-const char *ssid = "Unicorn2012";
-const char *password = "Finance@5408";
+const char *ssid = "CLPHS_Admin";
+const char *password = "CLP8283655";
 
 /* API ENDPOINT */
 const char *serverURL =
