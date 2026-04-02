@@ -8,11 +8,11 @@
 #include <math.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID 1
+#define NODE_ID 2
 
 // Safe angle calibration (where the node is mounted/resting)
-#define SAFE_PITCH -67.0
-#define SAFE_ROLL 0.0
+#define SAFE_PITCH -84.0 //-67 node1, -84 node2,
+#define SAFE_ROLL -165.0 //0 node1, -165 node2,
 #define TILT_THRESHOLD 30.0 // Degrees of deviation before triggering alert
 
 // Update this to match your receiver's MAC address!
@@ -207,7 +207,7 @@ void setup()
 
   WiFi.mode(WIFI_STA);
 
-  int32_t channel = getWiFiChannel("CLPHS_Admin"); // change to what wifi channel u on
+  int32_t channel = getWiFiChannel("steve"); // change to what wifi channel u on
   esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
 
   Serial.print("WiFi Channel: ");
