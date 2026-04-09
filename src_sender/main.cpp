@@ -11,8 +11,8 @@
 #define NODE_ID 2
 
 // Safe angle calibration (where the node is mounted/resting)
-#define SAFE_PITCH -84.0 //-67 node1, -84 node2,
-#define SAFE_ROLL -165.0 //0 node1, -165 node2,
+#define SAFE_PITCH -84.51 //-67 node1, -84 node2, -66.51 node3
+#define SAFE_ROLL -175.51 //0 node1, -175 node2, - 103.51 node3
 #define TILT_THRESHOLD 30.0 // Degrees of deviation before triggering alert
 
 // Update this to match your receiver's MAC address!
@@ -313,7 +313,7 @@ void loop()
       (msg.temp > 60) ||
       (pitchDev > TILT_THRESHOLD) ||
       (rollDev > TILT_THRESHOLD) ||
-      (msg.smokeAnalog > 2500);
+      (msg.smokeAnalog > 3000);
 
   msg.nodeID = NODE_ID;
   msg.rssi = scannedRSSI;

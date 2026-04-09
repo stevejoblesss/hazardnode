@@ -5,7 +5,7 @@
 
 /* WIFI */
 const char *ssid = "steve";
-const char *password = "testrun2026";
+const char *password = "123456789";
 
 /* API ENDPOINT */
 const char *serverURL =
