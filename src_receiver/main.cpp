@@ -9,6 +9,9 @@
 char currentSSID[32] = "steve";
 char currentPass[32] = "123456789";
 
+/* GATEWAY CONFIG */
+#define GATEWAY_ID "Gateway 1"
+
 /* BACKUP WIFI */
 const char *backupSSID = "steve";
 const char *backupPass = "123456789";
@@ -22,7 +25,8 @@ const char *serverURL =
 /* STRUCT */
 typedef struct struct_message
 {
-  char nodeID[32]; 
+  char nodeID[32];
+  char type[16];   // "sender" or "receiver"
   float temp;
   float hum;
   float pitch;
@@ -31,11 +35,12 @@ typedef struct struct_message
   bool smokeDigital;
   bool danger;
   int rssi;
+  int edgeAIClass; // 0=NORMAL, 1=WARNING, 2=HAZARD
 } struct_message;
 
 struct_message data;
-uint8_t rxBuffer[58]; // Size of the packed struct (32 + 4 + 4 + 4 + 4 + 4 + 1 + 1 + 4 = 58)
-const int PACKET_SIZE = 58;
+uint8_t rxBuffer[78]; // New size: 32 + 16 + 4*4 + 4 + 1 + 1 + 4 + 4 = 78 bytes
+const int PACKET_SIZE = 78;
 volatile bool newDataAvailable = false;
 
 /* RECEIVE CALLBACK */
@@ -79,7 +84,7 @@ bool connectToWiFi(const char *ssid, const char *pass, int timeout_s = 10)
   return false;
 }
 
-void uploadToServer(String id, float t, float h, float p, float r, int sa, bool sd, bool d, int rssiVal)
+void uploadToServer(String id, String type, float t, float h, float p, float r, int sa, bool sd, bool d, int rssiVal, int aiClass)
 {
   if (WiFi.status() != WL_CONNECTED)
   {
@@ -92,6 +97,7 @@ void uploadToServer(String id, float t, float h, float p, float r, int sa, bool 
 
   JsonDocument doc;
   doc["nodeID"] = id;
+  doc["type"] = type;
   doc["temp"] = round(t * 100) / 100.0;
   doc["hum"] = round(h * 100) / 100.0;
   doc["pitch"] = round(p * 100) / 100.0;
@@ -100,12 +106,13 @@ void uploadToServer(String id, float t, float h, float p, float r, int sa, bool 
   doc["smokeDigital"] = sd;
   doc["danger"] = d;
   doc["rssi"] = rssiVal;
+  doc["edgeAIClass"] = aiClass;
 
   String json;
   serializeJson(doc, json);
 
   Serial.println("Uploading to Vercel...");
-  if (id == "0" || id == "Gateway")
+  if (type == "receiver")
     Serial.print("Gateway Status Update | ");
   else
   {
@@ -186,22 +193,24 @@ void uploadData()
   // Manually unpack the packed buffer into our aligned struct.
   // This prevents 'LoadProhibited' crashes on the ESP32.
   memcpy(data.nodeID, rxBuffer + 0, 32);
-  memcpy(&data.temp, rxBuffer + 32, 4);
-  memcpy(&data.hum, rxBuffer + 36, 4);
-  memcpy(&data.pitch, rxBuffer + 40, 4);
-  memcpy(&data.roll, rxBuffer + 44, 4);
-  memcpy(&data.smokeAnalog, rxBuffer + 48, 4);
-  data.smokeDigital = (rxBuffer[52] != 0);
-  data.danger = (rxBuffer[53] != 0);
-  memcpy(&data.rssi, rxBuffer + 54, 4);
+  memcpy(data.type, rxBuffer + 32, 16);
+  memcpy(&data.temp, rxBuffer + 48, 4);
+  memcpy(&data.hum, rxBuffer + 52, 4);
+  memcpy(&data.pitch, rxBuffer + 56, 4);
+  memcpy(&data.roll, rxBuffer + 60, 4);
+  memcpy(&data.smokeAnalog, rxBuffer + 64, 4);
+  data.smokeDigital = (rxBuffer[68] != 0);
+  data.danger = (rxBuffer[69] != 0);
+  memcpy(&data.rssi, rxBuffer + 70, 4);
+  memcpy(&data.edgeAIClass, rxBuffer + 74, 4);
 
-  uploadToServer(String(data.nodeID), data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, data.rssi);
+  uploadToServer(String(data.nodeID), String(data.type), data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, data.rssi, data.edgeAIClass);
 }
 
 void uploadGatewayStatus()
 {
-  // Gateway uses Node ID "Gateway" to identify itself on the dashboard
-  uploadToServer("Gateway", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI());
+  // Gateway identifies itself as type "receiver" and nodeID GATEWAY_ID
+  uploadToServer(GATEWAY_ID, "receiver", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI(), 0);
 }
 
 /* SETUP */

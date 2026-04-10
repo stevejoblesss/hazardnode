@@ -8,11 +8,11 @@
 #include <math.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID "2"
+#define NODE_ID "Block 3"
 
 // Safe angle calibration (where the node is mounted/resting)
-#define SAFE_PITCH -84.51 //-67 node1, -84 node2, -66.51 node3
-#define SAFE_ROLL -175.51 //0 node1, -175 node2, - 103.51 node3
+#define SAFE_PITCH -66.51 //-67 node1, -84 node2, -66.51 node3
+#define SAFE_ROLL -103.51 //0 node1, -175 node2, - 103.51 node3
 #define TILT_THRESHOLD 30.0 // Degrees of deviation before triggering alert
 
 // Update this to match your receiver's MAC address!
@@ -49,7 +49,8 @@ U8G2_SSD1309_128X64_NONAME0_F_4W_SW_SPI u8g2(U8G2_R0, OLED_SCK, OLED_MOSI, OLED_
 /* ===== DATA STRUCT ===== */
 typedef struct __attribute__((packed)) struct_message
 {
-  char nodeID[32]; // Changed from int to string array
+  char nodeID[32];
+  char type[16];   // "sender" or "receiver"
   float temp;
   float hum;
   float pitch;
@@ -58,6 +59,7 @@ typedef struct __attribute__((packed)) struct_message
   bool smokeDigital;
   bool danger;
   int rssi;
+  int edgeAIClass; // 0=NORMAL, 1=WARNING, 2=HAZARD
 } struct_message;
 
 struct_message msg;
@@ -315,8 +317,21 @@ void loop()
       (rollDev > TILT_THRESHOLD) ||
       (msg.smokeAnalog > 3000);
 
+  // Edge AI Classification: 0=NORMAL, 1=WARNING, 2=HAZARD
+  if (msg.danger) {
+      msg.edgeAIClass = 2; // Hazard
+  } else if (msg.temp > 45 || msg.smokeAnalog > 1500 || pitchDev > (TILT_THRESHOLD/2) || rollDev > (TILT_THRESHOLD/2)) {
+      msg.edgeAIClass = 1; // Warning
+  } else {
+      msg.edgeAIClass = 0; // Normal
+  }
+
   strncpy(msg.nodeID, NODE_ID, sizeof(msg.nodeID) - 1);
-  msg.nodeID[sizeof(msg.nodeID) - 1] = '\0'; // Ensure null-terminated
+  msg.nodeID[sizeof(msg.nodeID) - 1] = '\0';
+  
+  strncpy(msg.type, "sender", sizeof(msg.type) - 1);
+  msg.type[sizeof(msg.type) - 1] = '\0';
+
   msg.rssi = scannedRSSI;
 
   /* ===== SEND ===== */
