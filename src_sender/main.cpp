@@ -8,7 +8,7 @@
 #include <math.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID 2
+#define NODE_ID "2"
 
 // Safe angle calibration (where the node is mounted/resting)
 #define SAFE_PITCH -84.51 //-67 node1, -84 node2, -66.51 node3
@@ -49,7 +49,7 @@ U8G2_SSD1309_128X64_NONAME0_F_4W_SW_SPI u8g2(U8G2_R0, OLED_SCK, OLED_MOSI, OLED_
 /* ===== DATA STRUCT ===== */
 typedef struct __attribute__((packed)) struct_message
 {
-  int nodeID;
+  char nodeID[32]; // Changed from int to string array
   float temp;
   float hum;
   float pitch;
@@ -315,7 +315,8 @@ void loop()
       (rollDev > TILT_THRESHOLD) ||
       (msg.smokeAnalog > 3000);
 
-  msg.nodeID = NODE_ID;
+  strncpy(msg.nodeID, NODE_ID, sizeof(msg.nodeID) - 1);
+  msg.nodeID[sizeof(msg.nodeID) - 1] = '\0'; // Ensure null-terminated
   msg.rssi = scannedRSSI;
 
   /* ===== SEND ===== */

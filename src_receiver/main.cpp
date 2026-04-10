@@ -2,19 +2,27 @@
 #include <esp_now.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <Preferences.h>
+#include <ArduinoJson.h>
 
 /* WIFI */
-const char *ssid = "steve";
-const char *password = "123456789";
+char currentSSID[32] = "steve";
+char currentPass[32] = "123456789";
+
+/* BACKUP WIFI */
+const char *backupSSID = "steve";
+const char *backupPass = "123456789";
+
+Preferences preferences;
 
 /* API ENDPOINT */
 const char *serverURL =
     "https://hazardnode-dashboard.vercel.app/api/node";
 
 /* STRUCT */
-typedef struct __attribute__((packed)) struct_message
+typedef struct struct_message
 {
-  int nodeID;
+  char nodeID[32]; 
   float temp;
   float hum;
   float pitch;
@@ -26,6 +34,8 @@ typedef struct __attribute__((packed)) struct_message
 } struct_message;
 
 struct_message data;
+uint8_t rxBuffer[58]; // Size of the packed struct (32 + 4 + 4 + 4 + 4 + 4 + 1 + 1 + 4 = 58)
+const int PACKET_SIZE = 58;
 volatile bool newDataAvailable = false;
 
 /* RECEIVE CALLBACK */
@@ -37,50 +47,74 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
 #endif
 
-  if (len != sizeof(data))
+  if (len != PACKET_SIZE)
   {
     Serial.print("Invalid packet length: received ");
     Serial.print(len);
     Serial.print(", expected ");
-    Serial.println(sizeof(data));
+    Serial.println(PACKET_SIZE);
     return;
   }
 
-  memcpy(&data, incomingData, sizeof(data));
+  memcpy(rxBuffer, incomingData, PACKET_SIZE);
   newDataAvailable = true;
-
-  Serial.print("Packet received from Node: ");
-  Serial.println(data.nodeID);
 }
 
-void uploadData()
+bool connectToWiFi(const char *ssid, const char *pass, int timeout_s = 10)
+{
+  Serial.printf("Connecting to WiFi: %s\n", ssid);
+  WiFi.begin(ssid, pass);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - start) < (timeout_s * 1000))
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("\nWiFi Connected!");
+    return true;
+  }
+  Serial.println("\nWiFi Connection Failed.");
+  return false;
+}
+
+void uploadToServer(String id, float t, float h, float p, float r, int sa, bool sd, bool d, int rssiVal)
 {
   if (WiFi.status() != WL_CONNECTED)
   {
     Serial.println("WiFi Disconnected, attempting to reconnect...");
-    WiFi.begin(ssid, password);
+    connectToWiFi(currentSSID, currentPass);
     return;
   }
 
   int currentWiFiRSSI = WiFi.RSSI();
 
-  String json = "{";
-  json += "\"nodeID\":" + String(data.nodeID) + ",";
-  json += "\"temp\":" + String(data.temp, 2) + ",";
-  json += "\"hum\":" + String(data.hum, 2) + ",";
-  json += "\"pitch\":" + String(data.pitch, 2) + ",";
-  json += "\"roll\":" + String(data.roll, 2) + ",";
-  json += "\"smokeAnalog\":" + String(data.smokeAnalog) + ",";
-  json += "\"smokeDigital\":" + String(data.smokeDigital ? "true" : "false") + ",";
-  json += "\"danger\":" + String(data.danger ? "true" : "false") + ",";
-  json += "\"rssi\":" + String(currentWiFiRSSI);
-  json += "}";
+  JsonDocument doc;
+  doc["nodeID"] = id;
+  doc["temp"] = round(t * 100) / 100.0;
+  doc["hum"] = round(h * 100) / 100.0;
+  doc["pitch"] = round(p * 100) / 100.0;
+  doc["roll"] = round(r * 100) / 100.0;
+  doc["smokeAnalog"] = sa;
+  doc["smokeDigital"] = sd;
+  doc["danger"] = d;
+  doc["rssi"] = rssiVal;
+
+  String json;
+  serializeJson(doc, json);
 
   Serial.println("Uploading to Vercel...");
-  Serial.print("Node RSSI: ");
-  Serial.print(data.rssi);
-  Serial.print(" dBm | Gateway WiFi RSSI: ");
-  Serial.print(currentWiFiRSSI);
+  if (id == "0" || id == "Gateway")
+    Serial.print("Gateway Status Update | ");
+  else
+  {
+    Serial.print("Node ");
+    Serial.print(id);
+    Serial.print(" Update | ");
+  }
+  Serial.print("RSSI: ");
+  Serial.print(rssiVal);
   Serial.println(" dBm");
   Serial.println(json);
 
@@ -88,8 +122,6 @@ void uploadData()
   client.setInsecure(); // Required for Vercel HTTPS without certificate management
 
   HTTPClient http;
-
-  // Set timeout to 5 seconds
   http.setTimeout(5000);
 
   if (http.begin(client, serverURL))
@@ -103,33 +135,73 @@ void uploadData()
     {
       Serial.print("HTTP Response code: ");
       Serial.println(httpResponseCode);
+      
+      String response = http.getString();
+      Serial.println("Response: " + response);
+
       if (httpResponseCode == 200 || httpResponseCode == 201)
       {
-        Serial.println("Upload Success!");
-      }
-      else
-      {
-        String response = http.getString();
-        Serial.println("Response body: " + response);
+        // Check for new WiFi configuration in the response
+        // Expected JSON: {"newSSID": "...", "newPass": "..."}
+        JsonDocument responseDoc;
+        DeserializationError error = deserializeJson(responseDoc, response);
+        
+        if (!error && responseDoc.containsKey("newSSID") && responseDoc.containsKey("newPass")) {
+            const char* newSSID = responseDoc["newSSID"];
+            const char* newPass = responseDoc["newPass"];
+            
+            if (strcmp(newSSID, currentSSID) != 0) {
+                Serial.printf("Received new WiFi config: %s\n", newSSID);
+                
+                // Attempt to connect to the new WiFi
+                if (connectToWiFi(newSSID, newPass, 15)) {
+                    // Success! Save to preferences
+                    preferences.begin("wifi-config", false);
+                    preferences.putString("ssid", newSSID);
+                    preferences.putString("pass", newPass);
+                    preferences.end();
+                    
+                    strncpy(currentSSID, newSSID, 31);
+                    strncpy(currentPass, newPass, 31);
+                    Serial.println("New WiFi config saved.");
+                } else {
+                    Serial.println("Failed to connect to new WiFi. Reverting to old config.");
+                    connectToWiFi(currentSSID, currentPass);
+                }
+            }
+        }
       }
     }
     else
     {
       Serial.print("HTTP Error code: ");
       Serial.println(httpResponseCode);
-      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpResponseCode).c_str());
-      
-      if (httpResponseCode == -1) {
-          Serial.println("TIP: 'Connection Refused' usually means the ESP32 can't reach the server.");
-          Serial.println("Try pinging 'hazardnode-dashboard.vercel.app' from your PC to ensure the site is up.");
-      }
     }
     http.end();
   }
-  else
-  {
-    Serial.println("[HTTP] Unable to connect to server");
-  }
+}
+
+void uploadData()
+{
+  // Manually unpack the packed buffer into our aligned struct.
+  // This prevents 'LoadProhibited' crashes on the ESP32.
+  memcpy(data.nodeID, rxBuffer + 0, 32);
+  memcpy(&data.temp, rxBuffer + 32, 4);
+  memcpy(&data.hum, rxBuffer + 36, 4);
+  memcpy(&data.pitch, rxBuffer + 40, 4);
+  memcpy(&data.roll, rxBuffer + 44, 4);
+  memcpy(&data.smokeAnalog, rxBuffer + 48, 4);
+  data.smokeDigital = (rxBuffer[52] != 0);
+  data.danger = (rxBuffer[53] != 0);
+  memcpy(&data.rssi, rxBuffer + 54, 4);
+
+  uploadToServer(String(data.nodeID), data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, data.rssi);
+}
+
+void uploadGatewayStatus()
+{
+  // Gateway uses Node ID "Gateway" to identify itself on the dashboard
+  uploadToServer("Gateway", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI());
 }
 
 /* SETUP */
@@ -137,28 +209,28 @@ void setup()
 {
   Serial.begin(115200);
 
+  // Load stored WiFi credentials
+  preferences.begin("wifi-config", true);
+  String storedSSID = preferences.getString("ssid", backupSSID);
+  String storedPass = preferences.getString("pass", backupPass);
+  preferences.end();
+
+  strncpy(currentSSID, storedSSID.c_str(), 31);
+  strncpy(currentPass, storedPass.c_str(), 31);
+
   WiFi.mode(WIFI_STA);
   Serial.print("Gateway MAC: ");
   Serial.println(WiFi.macAddress());
 
-  WiFi.begin(ssid, password);
-
-  unsigned long startAttemptTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000)
+  // Try stored WiFi, then fallback to hardcoded backup if it fails
+  if (!connectToWiFi(currentSSID, currentPass))
   {
-    delay(500);
-    Serial.print(".");
-  }
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.println("\nWiFi Connected");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  }
-  else
-  {
-    Serial.println("\nWiFi Connection Failed (Timeout)");
+    Serial.println("Stored WiFi failed. Trying backup...");
+    if (connectToWiFi(backupSSID, backupPass))
+    {
+      strncpy(currentSSID, backupSSID, 31);
+      strncpy(currentPass, backupPass, 31);
+    }
   }
 
   WiFi.setSleep(false); // Disable WiFi power save for ESP-NOW
@@ -179,6 +251,14 @@ void loop()
   {
     uploadData();
     newDataAvailable = false;
+  }
+
+  // Periodic Gateway Status Update every 60 seconds
+  static unsigned long lastGatewayUpdate = 0;
+  if (millis() - lastGatewayUpdate > 60000)
+  {
+    lastGatewayUpdate = millis();
+    uploadGatewayStatus();
   }
 
   // Periodic WiFi check every 30 seconds
