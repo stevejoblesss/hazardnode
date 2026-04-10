@@ -6,9 +6,13 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <math.h>
+#include <Preferences.h>
 
 /* ===== NODE CONFIG ===== */
-#define NODE_ID "Block 3"
+char nodeID[32] = "Block 3";
+const char *backupNodeID = "Block 3";
+
+Preferences preferences;
 
 // Safe angle calibration (where the node is mounted/resting)
 #define SAFE_PITCH -66.51 //-67 node1, -84 node2, -66.51 node3
@@ -62,14 +66,23 @@ typedef struct __attribute__((packed)) struct_message
   int edgeAIClass; // 0=NORMAL, 1=WARNING, 2=HAZARD
 } struct_message;
 
+// Command struct for receiving updates from Gateway
+typedef struct struct_command
+{
+  char commandType[16]; // "UPDATE_ID"
+  char targetID[32];    // The current ID of the sender
+  char newValue[32];    // The new ID or value
+} struct_command;
+
 struct_message msg;
+struct_command cmd;
 int32_t scannedRSSI = 0;
 
 /* ===== STATUS ===== */
 bool sendSuccess = false;
 int packetCount = 0;
 
-/* ===== ESP-NOW CALLBACK ===== */
+/* ===== ESP-NOW CALLBACKS ===== */
 void OnDataSent(const uint8_t *mac, esp_now_send_status_t status)
 {
   Serial.print("Last Packet Send Status: ");
@@ -79,6 +92,30 @@ void OnDataSent(const uint8_t *mac, esp_now_send_status_t status)
 
   if (sendSuccess)
     packetCount++;
+}
+
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
+{
+#else
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
+{
+#endif
+  if (len == sizeof(struct_command))
+  {
+    memcpy(&cmd, incomingData, sizeof(cmd));
+    if (strcmp(cmd.commandType, "UPDATE_ID") == 0)
+    {
+      if (strcmp(cmd.targetID, nodeID) == 0)
+      {
+        Serial.printf("Updating Node ID from '%s' to '%s'\n", nodeID, cmd.newValue);
+        preferences.begin("node-config", false);
+        preferences.putString("nodeID", cmd.newValue);
+        preferences.end();
+        strncpy(nodeID, cmd.newValue, 31);
+      }
+    }
+  }
 }
 
 /* ===== OLED DISPLAY ===== */
@@ -112,7 +149,7 @@ void drawOLED()
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.setCursor(0, 60);
     u8g2.print("Node ID: ");
-    u8g2.print(NODE_ID);
+    u8g2.print(nodeID);
   }
   else
   {
@@ -120,7 +157,7 @@ void drawOLED()
 
     u8g2.setCursor(0, 10);
     u8g2.print("Node:");
-    u8g2.print(NODE_ID);
+    u8g2.print(nodeID);
 
     u8g2.setCursor(0, 22);
     u8g2.print("T:");
@@ -191,6 +228,12 @@ void setup()
 
   Serial.begin(115200);
 
+  // Load stored Node ID
+  preferences.begin("node-config", true);
+  String storedID = preferences.getString("nodeID", backupNodeID);
+  preferences.end();
+  strncpy(nodeID, storedID.c_str(), 31);
+
   // Calibration for MQ2 Sensor (Warm-up period)
   Serial.println("MQ2 Sensor Warming Up (5 seconds)...");
   delay(5000); 
@@ -222,6 +265,7 @@ void setup()
   }
 
   esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv); // Register receive callback for updates
 
   esp_now_peer_info_t peerInfo = {};
 
@@ -243,6 +287,9 @@ void setup()
   }
 
   Serial.println("HazardNode Sender Ready");
+  Serial.print("Current Node ID: ");
+  Serial.println(nodeID);
+  
   if (useBroadcast)
     Serial.println("BROADCAST MODE ON");
   else
@@ -326,7 +373,7 @@ void loop()
       msg.edgeAIClass = 0; // Normal
   }
 
-  strncpy(msg.nodeID, NODE_ID, sizeof(msg.nodeID) - 1);
+  strncpy(msg.nodeID, nodeID, sizeof(msg.nodeID) - 1);
   msg.nodeID[sizeof(msg.nodeID) - 1] = '\0';
   
   strncpy(msg.type, "sender", sizeof(msg.type) - 1);

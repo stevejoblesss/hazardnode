@@ -10,7 +10,8 @@ char currentSSID[32] = "steve";
 char currentPass[32] = "123456789";
 
 /* GATEWAY CONFIG */
-#define GATEWAY_ID "Gateway 1"
+char gatewayID[32] = "Gateway 1";
+const char *backupGatewayID = "Gateway 1";
 
 /* BACKUP WIFI */
 const char *backupSSID = "steve";
@@ -38,7 +39,16 @@ typedef struct struct_message
   int edgeAIClass; // 0=NORMAL, 1=WARNING, 2=HAZARD
 } struct_message;
 
+// Command struct for relaying updates to Senders
+typedef struct struct_command
+{
+  char commandType[16]; // "UPDATE_ID"
+  char targetID[32];    // The current ID of the sender
+  char newValue[32];    // The new ID or value
+} struct_command;
+
 struct_message data;
+struct_command cmd;
 uint8_t rxBuffer[78]; // New size: 32 + 16 + 4*4 + 4 + 1 + 1 + 4 + 4 = 78 bytes
 const int PACKET_SIZE = 78;
 volatile bool newDataAvailable = false;
@@ -98,31 +108,41 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   JsonDocument doc;
   doc["nodeID"] = id;
   doc["type"] = type;
-  doc["temp"] = round(t * 100) / 100.0;
-  doc["hum"] = round(h * 100) / 100.0;
-  doc["pitch"] = round(p * 100) / 100.0;
-  doc["roll"] = round(r * 100) / 100.0;
-  doc["smokeAnalog"] = sa;
-  doc["smokeDigital"] = sd;
-  doc["danger"] = d;
   doc["rssi"] = rssiVal;
-  doc["edgeAIClass"] = aiClass;
+
+  // Only add sensor data if it's a sender node
+  if (type != "receiver")
+  {
+    doc["temp"] = round(t * 100) / 100.0;
+    doc["hum"] = round(h * 100) / 100.0;
+    doc["pitch"] = round(p * 100) / 100.0;
+    doc["roll"] = round(r * 100) / 100.0;
+    doc["smokeAnalog"] = sa;
+    doc["smokeDigital"] = sd;
+    doc["danger"] = d;
+    doc["edgeAIClass"] = aiClass;
+  }
 
   String json;
   serializeJson(doc, json);
 
   Serial.println("Uploading to Vercel...");
   if (type == "receiver")
-    Serial.print("Gateway Status Update | ");
+  {
+    Serial.print("[GATEWAY] ID: ");
+    Serial.print(id);
+    Serial.print(" | WiFi Signal: ");
+    Serial.print(rssiVal);
+    Serial.println(" dBm");
+  }
   else
   {
-    Serial.print("Node ");
+    Serial.print("[NODE] ID: ");
     Serial.print(id);
-    Serial.print(" Update | ");
+    Serial.print(" | Signal: ");
+    Serial.print(rssiVal);
+    Serial.println(" dBm");
   }
-  Serial.print("RSSI: ");
-  Serial.print(rssiVal);
-  Serial.println(" dBm");
   Serial.println(json);
 
   WiFiClientSecure client;
@@ -148,32 +168,54 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
 
       if (httpResponseCode == 200 || httpResponseCode == 201)
       {
-        // Check for new WiFi configuration in the response
-        // Expected JSON: {"newSSID": "...", "newPass": "..."}
+        // Check for new WiFi configuration or Node ID updates
         JsonDocument responseDoc;
         DeserializationError error = deserializeJson(responseDoc, response);
         
-        if (!error && responseDoc["newSSID"].is<const char*>() && responseDoc["newPass"].is<const char*>()) {
-            const char* newSSID = responseDoc["newSSID"];
-            const char* newPass = responseDoc["newPass"];
-            
-            if (strcmp(newSSID, currentSSID) != 0) {
-                Serial.printf("Received new WiFi config: %s\n", newSSID);
+        if (!error) {
+            // 1. Check for WiFi config update
+            if (responseDoc["newSSID"].is<const char*>() && responseDoc["newPass"].is<const char*>()) {
+                const char* newSSID = responseDoc["newSSID"];
+                const char* newPass = responseDoc["newPass"];
                 
-                // Attempt to connect to the new WiFi
-                if (connectToWiFi(newSSID, newPass, 15)) {
-                    // Success! Save to preferences
-                    preferences.begin("wifi-config", false);
-                    preferences.putString("ssid", newSSID);
-                    preferences.putString("pass", newPass);
+                if (strcmp(newSSID, currentSSID) != 0) {
+                    Serial.printf("Received new WiFi config: %s\n", newSSID);
+                    if (connectToWiFi(newSSID, newPass, 15)) {
+                        preferences.begin("gateway-config", false);
+                        preferences.putString("ssid", newSSID);
+                        preferences.putString("pass", newPass);
+                        preferences.end();
+                        strncpy(currentSSID, newSSID, 31);
+                        strncpy(currentPass, newPass, 31);
+                        Serial.println("New WiFi config saved.");
+                    } else {
+                        Serial.println("Failed to connect to new WiFi. Reverting.");
+                        connectToWiFi(currentSSID, currentPass);
+                    }
+                }
+            }
+            
+            // 2. Check for Node ID update
+            if (responseDoc["targetNode"].is<const char*>() && responseDoc["newNodeID"].is<const char*>()) {
+                const char* targetNode = responseDoc["targetNode"];
+                const char* newNodeID = responseDoc["newNodeID"];
+                
+                if (strcmp(targetNode, gatewayID) == 0) {
+                    // Update the Gateway itself
+                    Serial.printf("Updating Gateway ID to: %s\n", newNodeID);
+                    preferences.begin("gateway-config", false);
+                    preferences.putString("nodeID", newNodeID);
                     preferences.end();
-                    
-                    strncpy(currentSSID, newSSID, 31);
-                    strncpy(currentPass, newPass, 31);
-                    Serial.println("New WiFi config saved.");
+                    strncpy(gatewayID, newNodeID, 31);
                 } else {
-                    Serial.println("Failed to connect to new WiFi. Reverting to old config.");
-                    connectToWiFi(currentSSID, currentPass);
+                    // Relay to Sender nodes via ESP-NOW broadcast
+                    Serial.printf("Relaying ID update to Sender '%s' -> '%s'\n", targetNode, newNodeID);
+                    strncpy(cmd.commandType, "UPDATE_ID", 15);
+                    strncpy(cmd.targetID, targetNode, 31);
+                    strncpy(cmd.newValue, newNodeID, 31);
+                    
+                    uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                    esp_now_send(broadcastAddress, (uint8_t *)&cmd, sizeof(cmd));
                 }
             }
         }
@@ -209,8 +251,8 @@ void uploadData()
 
 void uploadGatewayStatus()
 {
-  // Gateway identifies itself as type "receiver" and nodeID GATEWAY_ID
-  uploadToServer(GATEWAY_ID, "receiver", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI(), 0);
+  // Gateway identifies itself as type "receiver" and nodeID gatewayID
+  uploadToServer(gatewayID, "receiver", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI(), 0);
 }
 
 /* SETUP */
@@ -218,14 +260,16 @@ void setup()
 {
   Serial.begin(115200);
 
-  // Load stored WiFi credentials
-  preferences.begin("wifi-config", true);
+  // Load stored WiFi credentials and Gateway ID
+  preferences.begin("gateway-config", true);
   String storedSSID = preferences.getString("ssid", backupSSID);
   String storedPass = preferences.getString("pass", backupPass);
+  String storedID = preferences.getString("nodeID", backupGatewayID);
   preferences.end();
 
   strncpy(currentSSID, storedSSID.c_str(), 31);
   strncpy(currentPass, storedPass.c_str(), 31);
+  strncpy(gatewayID, storedID.c_str(), 31);
 
   WiFi.mode(WIFI_STA);
   Serial.print("Gateway MAC: ");
@@ -248,6 +292,18 @@ void setup()
   {
     Serial.println("ESP NOW FAIL");
     return;
+  }
+
+  // Register broadcast peer for command relay
+  esp_now_peer_info_t peerInfo;
+  memset(&peerInfo, 0, sizeof(peerInfo));
+  uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0; // Use current channel
+  peerInfo.encrypt = false;
+  if (esp_now_add_peer(&peerInfo) != ESP_OK)
+  {
+    Serial.println("Failed to add broadcast peer");
   }
 
   esp_now_register_recv_cb(OnDataRecv);
