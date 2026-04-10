@@ -146,7 +146,7 @@ void uploadToServer(String id, float t, float h, float p, float r, int sa, bool 
         JsonDocument responseDoc;
         DeserializationError error = deserializeJson(responseDoc, response);
         
-        if (!error && responseDoc.containsKey("newSSID") && responseDoc.containsKey("newPass")) {
+        if (!error && responseDoc["newSSID"].is<const char*>() && responseDoc["newPass"].is<const char*>()) {
             const char* newSSID = responseDoc["newSSID"];
             const char* newPass = responseDoc["newPass"];
             
