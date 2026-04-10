@@ -276,7 +276,7 @@ void loop()
     {
       Serial.println("Reconnecting WiFi...");
       WiFi.disconnect();
-      WiFi.begin(ssid, password);
+      connectToWiFi(currentSSID, currentPass);
     }
   }
 }
