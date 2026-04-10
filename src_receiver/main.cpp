@@ -108,20 +108,15 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   JsonDocument doc;
   doc["nodeID"] = id;
   doc["type"] = type;
+  doc["temp"] = round(t * 100) / 100.0;
+  doc["hum"] = round(h * 100) / 100.0;
+  doc["pitch"] = round(p * 100) / 100.0;
+  doc["roll"] = round(r * 100) / 100.0;
+  doc["smokeAnalog"] = sa;
+  doc["smokeDigital"] = sd;
+  doc["danger"] = d;
   doc["rssi"] = rssiVal;
-
-  // Only add sensor data if it's a sender node
-  if (type != "receiver")
-  {
-    doc["temp"] = round(t * 100) / 100.0;
-    doc["hum"] = round(h * 100) / 100.0;
-    doc["pitch"] = round(p * 100) / 100.0;
-    doc["roll"] = round(r * 100) / 100.0;
-    doc["smokeAnalog"] = sa;
-    doc["smokeDigital"] = sd;
-    doc["danger"] = d;
-    doc["edgeAIClass"] = aiClass;
-  }
+  doc["edgeAIClass"] = aiClass;
 
   String json;
   serializeJson(doc, json);
@@ -154,7 +149,6 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   if (http.begin(client, serverURL))
   {
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Host", "hazardnode-dashboard.vercel.app");
 
     int httpResponseCode = http.POST(json);
 
