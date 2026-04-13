@@ -5,17 +5,16 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
-/* WIFI */
-char currentSSID[32] = "steve";
-char currentPass[32] = "123456789";
+/* WIFI CONFIG */
+char currentSSID[32] = "Unicorn2012";   // Your Home Network
+char currentPass[32] = "Finance@5408";
+
+const char *backupSSID = "steve";       // Your Hotspot
+const char *backupPass = "123456789";
 
 /* GATEWAY CONFIG */
 char gatewayID[32] = "Gateway 1";
 const char *backupGatewayID = "Gateway 1";
-
-/* BACKUP WIFI */
-const char *backupSSID = "steve";
-const char *backupPass = "123456789";
 
 Preferences preferences;
 
@@ -108,15 +107,18 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   JsonDocument doc;
   doc["nodeID"] = id;
   doc["type"] = type;
-  doc["temp"] = round(t * 100) / 100.0;
-  doc["hum"] = round(h * 100) / 100.0;
-  doc["pitch"] = round(p * 100) / 100.0;
-  doc["roll"] = round(r * 100) / 100.0;
-  doc["smokeAnalog"] = sa;
-  doc["smokeDigital"] = sd;
-  doc["danger"] = d;
   doc["rssi"] = rssiVal;
-  doc["edgeAIClass"] = aiClass;
+
+  if (type != "receiver") {
+    doc["temp"] = round(t * 100) / 100.0;
+    doc["hum"] = round(h * 100) / 100.0;
+    doc["pitch"] = round(p * 100) / 100.0;
+    doc["roll"] = round(r * 100) / 100.0;
+    doc["smokeAnalog"] = sa;
+    doc["smokeDigital"] = sd;
+    doc["danger"] = d;
+    doc["edgeAIClass"] = aiClass;
+  }
 
   String json;
   serializeJson(doc, json);
@@ -158,58 +160,67 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
       Serial.println(httpResponseCode);
       
       String response = http.getString();
-      Serial.println("Response: " + response);
+      Serial.print("[FETCH] Server Response: ");
+      Serial.println(response);
 
       if (httpResponseCode == 200 || httpResponseCode == 201)
       {
-        // Check for new WiFi configuration or Node ID updates
-        JsonDocument responseDoc;
-        DeserializationError error = deserializeJson(responseDoc, response);
-        
-        if (!error) {
-            // 1. Check for WiFi config update
-            if (responseDoc["newSSID"].is<const char*>() && responseDoc["newPass"].is<const char*>()) {
-                const char* newSSID = responseDoc["newSSID"];
-                const char* newPass = responseDoc["newPass"];
-                
-                if (strcmp(newSSID, currentSSID) != 0) {
-                    Serial.printf("Received new WiFi config: %s\n", newSSID);
-                    if (connectToWiFi(newSSID, newPass, 15)) {
+        if (response.length() == 0) {
+            Serial.println("[FETCH] Warning: Response body is empty.");
+        } else {
+            JsonDocument responseDoc;
+            DeserializationError error = deserializeJson(responseDoc, response);
+            
+            if (error) {
+                Serial.print("[FETCH] JSON Parse Error: ");
+                Serial.println(error.c_str());
+            } else {
+                // 1. Check for WiFi config update
+                if (responseDoc["newSSID"].is<const char*>() && responseDoc["newPass"].is<const char*>()) {
+                    const char* nSSID = responseDoc["newSSID"];
+                    const char* nPass = responseDoc["newPass"];
+                    Serial.printf("[FETCH] New WiFi Config detected: %s\n", nSSID);
+                    
+                    if (connectToWiFi(nSSID, nPass, 15)) {
                         preferences.begin("gateway-config", false);
-                        preferences.putString("ssid", newSSID);
-                        preferences.putString("pass", newPass);
+                        preferences.putString("ssid", nSSID);
+                        preferences.putString("pass", nPass);
                         preferences.end();
-                        strncpy(currentSSID, newSSID, 31);
-                        strncpy(currentPass, newPass, 31);
-                        Serial.println("New WiFi config saved.");
+                        strncpy(currentSSID, nSSID, 31);
+                        strncpy(currentPass, nPass, 31);
+                        Serial.println("[FETCH] WiFi Update Successful and Saved.");
                     } else {
-                        Serial.println("Failed to connect to new WiFi. Reverting.");
+                        Serial.println("[FETCH] WiFi Update Failed (Connection failed). Reverting.");
                         connectToWiFi(currentSSID, currentPass);
                     }
                 }
-            }
-            
-            // 2. Check for Node ID update
-            if (responseDoc["targetNode"].is<const char*>() && responseDoc["newNodeID"].is<const char*>()) {
-                const char* targetNode = responseDoc["targetNode"];
-                const char* newNodeID = responseDoc["newNodeID"];
                 
-                if (strcmp(targetNode, gatewayID) == 0) {
-                    // Update the Gateway itself
-                    Serial.printf("Updating Gateway ID to: %s\n", newNodeID);
-                    preferences.begin("gateway-config", false);
-                    preferences.putString("nodeID", newNodeID);
-                    preferences.end();
-                    strncpy(gatewayID, newNodeID, 31);
-                } else {
-                    // Relay to Sender nodes via ESP-NOW broadcast
-                    Serial.printf("Relaying ID update to Sender '%s' -> '%s'\n", targetNode, newNodeID);
-                    strncpy(cmd.commandType, "UPDATE_ID", 15);
-                    strncpy(cmd.targetID, targetNode, 31);
-                    strncpy(cmd.newValue, newNodeID, 31);
+                // 2. Check for Node ID update
+                if (responseDoc["targetNode"].is<const char*>() && responseDoc["newNodeID"].is<const char*>()) {
+                    String targetNode = responseDoc["targetNode"].as<String>();
+                    String newNodeID = responseDoc["newNodeID"].as<String>();
+                    targetNode.trim();
+                    newNodeID.trim();
                     
-                    uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-                    esp_now_send(broadcastAddress, (uint8_t *)&cmd, sizeof(cmd));
+                    Serial.printf("[FETCH] ID Update found for '%s' -> '%s'\n", targetNode.c_str(), newNodeID.c_str());
+                    
+                    if (targetNode.equalsIgnoreCase(String(gatewayID))) {
+                        Serial.println("[FETCH] Updating Gateway ID...");
+                        preferences.begin("gateway-config", false);
+                        preferences.putString("nodeID", newNodeID);
+                        preferences.end();
+                        strncpy(gatewayID, newNodeID.c_str(), 31);
+                        Serial.print("[FETCH] Gateway renamed to: ");
+                        Serial.println(gatewayID);
+                    } else {
+                        Serial.printf("[FETCH] Relaying ID update to Sender '%s'\n", targetNode.c_str());
+                        strncpy(cmd.commandType, "UPDATE_ID", 15);
+                        strncpy(cmd.targetID, targetNode.c_str(), 31);
+                        strncpy(cmd.newValue, newNodeID.c_str(), 31);
+                        
+                        uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                        esp_now_send(broadcastAddress, (uint8_t *)&cmd, sizeof(cmd));
+                    }
                 }
             }
         }
@@ -254,30 +265,51 @@ void setup()
 {
   Serial.begin(115200);
 
-  // Load stored WiFi credentials and Gateway ID
+  // Load stored Gateway ID from flash
   preferences.begin("gateway-config", true);
-  String storedSSID = preferences.getString("ssid", backupSSID);
-  String storedPass = preferences.getString("pass", backupPass);
   String storedID = preferences.getString("nodeID", backupGatewayID);
+  
+  // Also check if we have a remotely updated SSID
+  String storedSSID = preferences.getString("ssid", "");
+  String storedPass = preferences.getString("pass", "");
   preferences.end();
 
-  strncpy(currentSSID, storedSSID.c_str(), 31);
-  strncpy(currentPass, storedPass.c_str(), 31);
   strncpy(gatewayID, storedID.c_str(), 31);
 
   WiFi.mode(WIFI_STA);
   Serial.print("Gateway MAC: ");
   Serial.println(WiFi.macAddress());
 
-  // Try stored WiFi, then fallback to hardcoded backup if it fails
-  if (!connectToWiFi(currentSSID, currentPass))
-  {
-    Serial.println("Stored WiFi failed. Trying backup...");
-    if (connectToWiFi(backupSSID, backupPass))
-    {
-      strncpy(currentSSID, backupSSID, 31);
-      strncpy(currentPass, backupPass, 31);
-    }
+  bool connected = false;
+
+  // PRIORITY 1: Try the Home SSID (The one you hardcoded in the code)
+  Serial.printf("Trying Home WiFi: %s\n", currentSSID);
+  if (connectToWiFi(currentSSID, currentPass)) {
+      connected = true;
+  }
+
+  // PRIORITY 2: Try any remotely updated SSID (If you changed it on the website)
+  if (!connected && storedSSID != "" && storedSSID != currentSSID) {
+      Serial.printf("Trying Remote WiFi: %s\n", storedSSID.c_str());
+      if (connectToWiFi(storedSSID.c_str(), storedPass.c_str())) {
+          strncpy(currentSSID, storedSSID.c_str(), 31);
+          strncpy(currentPass, storedPass.c_str(), 31);
+          connected = true;
+      }
+  }
+
+  // PRIORITY 3: Try the Hotspot (Backup)
+  if (!connected) {
+      Serial.printf("Trying Hotspot: %s\n", backupSSID);
+      if (connectToWiFi(backupSSID, backupPass)) {
+          strncpy(currentSSID, backupSSID, 31);
+          strncpy(currentPass, backupPass, 31);
+          connected = true;
+      }
+  }
+
+  if (!connected) {
+      Serial.println("FATAL: No WiFi available.");
   }
 
   WiFi.setSleep(false); // Disable WiFi power save for ESP-NOW
@@ -302,6 +334,8 @@ void setup()
 
   esp_now_register_recv_cb(OnDataRecv);
   Serial.println("Gateway Ready");
+  Serial.print("Gateway ID: ");
+  Serial.println(gatewayID);
 }
 
 void loop()

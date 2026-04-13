@@ -194,31 +194,38 @@ void drawOLED()
 /* ===== WIFI SCAN ===== */
 #include <esp_wifi.h>
 
-int32_t getWiFiChannel(const char *ssid)
+int32_t getWiFiChannel(const char *ssid1, const char *ssid2)
 {
-  Serial.print("Scanning for WiFi channel of SSID: ");
-  Serial.println(ssid);
+  Serial.println("Scanning for WiFi channels...");
 
   int32_t n = WiFi.scanNetworks();
   if (n > 0)
   {
+    // Try to find the first SSID
     for (uint8_t i = 0; i < n; i++)
     {
-      if (!strcmp(ssid, WiFi.SSID(i).c_str()))
+      if (!strcmp(ssid1, WiFi.SSID(i).c_str()))
       {
         int32_t ch = WiFi.channel(i);
         scannedRSSI = WiFi.RSSI(i);
-        Serial.print("Found channel: ");
-        Serial.print(ch);
-        Serial.print(" | Signal (RSSI): ");
-        Serial.print(scannedRSSI);
-        Serial.println(" dBm");
+        Serial.printf("Found Primary SSID '%s' on channel: %d\n", ssid1, ch);
+        return ch;
+      }
+    }
+    // If not found, try to find the second SSID
+    for (uint8_t i = 0; i < n; i++)
+    {
+      if (!strcmp(ssid2, WiFi.SSID(i).c_str()))
+      {
+        int32_t ch = WiFi.channel(i);
+        scannedRSSI = WiFi.RSSI(i);
+        Serial.printf("Found Backup SSID '%s' on channel: %d\n", ssid2, ch);
         return ch;
       }
     }
   }
 
-  Serial.println("SSID not found. Defaulting to channel 1.");
+  Serial.println("No known SSID found. Defaulting to channel 1.");
   return 1;
 }
 
@@ -252,7 +259,8 @@ void setup()
 
   WiFi.mode(WIFI_STA);
 
-  int32_t channel = getWiFiChannel("steve"); // change to what wifi channel u on
+  // Scan for the Gateway on either Home or Hotspot
+  int32_t channel = getWiFiChannel("Unicorn2012", "steve"); 
   esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
 
   Serial.print("WiFi Channel: ");
