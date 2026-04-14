@@ -17,7 +17,7 @@ const char* nodeID = "Block 3";
 #define TILT_THRESHOLD 30.0
 
 // Update this to match your receiver's MAC address!
-uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x24, 0x4F, 0x68};
+uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x6C, 0x77, 0xF0};
 
 /* ===== PIN CONFIG ===== */
 #define DHTPIN 4
@@ -39,7 +39,7 @@ Adafruit_MPU6050 mpu;
 // 1. Existing I2C SH1106
 // U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
-// 2. New SPI SSD1309
+// 2. New SPI SSD1309 (Try NONAME0, if fails try NONAME2 or SSD1306 driver)
 U8G2_SSD1309_128X64_NONAME0_F_4W_SW_SPI u8g2(U8G2_R0, OLED_SCK, OLED_MOSI, OLED_CS, OLED_DC, OLED_RES);
 
 /* ===== DATA STRUCT ===== */
@@ -140,7 +140,19 @@ void setup()
   delay(5000); 
 
   Wire.begin(21, 22);
-  u8g2.begin();
+  
+  Serial.println("Initializing OLED...");
+  if (u8g2.begin()) {
+      Serial.println("OLED Init Success");
+      u8g2.setContrast(255); // Max contrast
+      u8g2.clearBuffer();
+      u8g2.setFont(u8g2_font_ncenB08_tr);
+      u8g2.drawStr(0, 20, "HazardNode Init...");
+      u8g2.sendBuffer();
+  } else {
+      Serial.println("OLED Init Failed");
+  }
+
   dht.begin();
 
   if (!mpu.begin())
@@ -152,8 +164,6 @@ void setup()
   WiFi.mode(WIFI_STA);
   // Using channel 1 by default as we removed scanning
   int32_t channel = 1; 
-  // Note: For ESP-NOW to work between sender and receiver, they MUST be on the same channel.
-  // The receiver will connect to its configured AP and inherit its channel.
   
   if (esp_now_init() != ESP_OK)
   {
@@ -204,7 +214,6 @@ void loop()
   msg.smokeDigital = (msg.smokeAnalog > 2500); 
 
   /* ===== EDGE AI INFERENCE ===== */
-  // predict(float temp, float hum, float pitch, float roll, float smoke_analog)
   msg.edgeAIClass = predict(msg.temp, msg.hum, msg.pitch, msg.roll, (float)msg.smokeAnalog);
   msg.danger = (msg.edgeAIClass == 2);
 

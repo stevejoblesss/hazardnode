@@ -32,15 +32,20 @@ struct_message data;
 // Size: 32 + 4*4 + 4 + 1 + 1 + 4 = 58 bytes
 const int PACKET_SIZE = 58;
 uint8_t rxBuffer[PACKET_SIZE];
+int lastRssi = -60; // Default RSSI
 volatile bool newDataAvailable = false;
 
 /* RECEIVE CALLBACK */
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
 {
+  if (info->rx_ctrl) {
+      lastRssi = info->rx_ctrl->rssi;
+  }
 #else
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
+  lastRssi = -55; 
 #endif
   if (len != PACKET_SIZE)
   {
@@ -70,7 +75,7 @@ bool connectToWiFi(const char *ssid, const char *pass, int timeout_s = 15)
   return false;
 }
 
-void uploadToServer(String id, String type, float t, float h, float p, float r, int sa, bool sd, bool d, int aiClass)
+void uploadToServer(String id, String type, float t, float h, float p, float r, int sa, bool sd, bool d, int rssiVal, int aiClass)
 {
   if (WiFi.status() != WL_CONNECTED)
   {
@@ -82,6 +87,7 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   JsonDocument doc;
   doc["nodeID"] = id;
   doc["type"] = type;
+  doc["rssi"] = rssiVal;
   doc["temp"] = round(t * 100) / 100.0;
   doc["hum"] = round(h * 100) / 100.0;
   doc["pitch"] = round(p * 100) / 100.0;
@@ -90,12 +96,15 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   doc["smokeDigital"] = sd;
   doc["danger"] = d;
   doc["edgeAIClass"] = aiClass;
-  doc["rssi"] = (type == "receiver") ? WiFi.RSSI() : 0; // Only receiver has real-time RSSI to AP
 
   String json;
   serializeJson(doc, json);
 
-  Serial.printf("[%s] Uploading data for %s...\n", type.c_str(), id.c_str());
+  if (type == "receiver")
+    Serial.printf("[GATEWAY] ID: %s | WiFi RSSI: %d dBm\n", id.c_str(), rssiVal);
+  else
+    Serial.printf("[NODE] ID: %s | Node RSSI: %d dBm\n", id.c_str(), rssiVal);
+
   Serial.println(json);
 
   WiFiClientSecure client;
@@ -126,7 +135,10 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
 void uploadData()
 {
   // Unpack buffer into struct
-  memcpy(data.nodeID, rxBuffer + 0, 32);
+  char rxNodeID[33];
+  memcpy(rxNodeID, rxBuffer + 0, 32);
+  rxNodeID[32] = '\0'; // Ensure null termination
+  
   memcpy(&data.temp, rxBuffer + 32, 4);
   memcpy(&data.hum, rxBuffer + 36, 4);
   memcpy(&data.pitch, rxBuffer + 40, 4);
@@ -136,12 +148,14 @@ void uploadData()
   data.danger = (rxBuffer[53] != 0);
   memcpy(&data.edgeAIClass, rxBuffer + 54, 4);
 
-  uploadToServer(String(data.nodeID), "sender", data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, data.edgeAIClass);
+  // Original arg order: id, type, t, h, p, r, sa, sd, d, rssiVal, aiClass
+  uploadToServer(String(rxNodeID), "sender", data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, lastRssi, data.edgeAIClass);
 }
 
 void uploadGatewayStatus()
 {
-  uploadToServer(gatewayID, "receiver", 0.0, 0.0, 0.0, 0.0, 0, false, false, 0);
+  // Original arg order: id, type, t, h, p, r, sa, sd, d, rssiVal, aiClass
+  uploadToServer(gatewayID, "receiver", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI(), 0);
 }
 
 /* SETUP */
