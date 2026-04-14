@@ -32,20 +32,15 @@ struct_message data;
 // Size: 32 + 4*4 + 4 + 1 + 1 + 4 = 58 bytes
 const int PACKET_SIZE = 58;
 uint8_t rxBuffer[PACKET_SIZE];
-int lastRssi = -60; // Default RSSI
 volatile bool newDataAvailable = false;
 
 /* RECEIVE CALLBACK */
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
 {
-  if (info->rx_ctrl) {
-      lastRssi = info->rx_ctrl->rssi;
-  }
 #else
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
-  lastRssi = -55; 
 #endif
   if (len != PACKET_SIZE)
   {
@@ -87,15 +82,21 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   JsonDocument doc;
   doc["nodeID"] = id;
   doc["type"] = type;
-  doc["rssi"] = rssiVal;
-  doc["temp"] = round(t * 100) / 100.0;
-  doc["hum"] = round(h * 100) / 100.0;
-  doc["pitch"] = round(p * 100) / 100.0;
-  doc["roll"] = round(r * 100) / 100.0;
-  doc["smokeAnalog"] = sa;
-  doc["smokeDigital"] = sd;
-  doc["danger"] = d;
-  doc["edgeAIClass"] = aiClass;
+
+  if (type == "receiver") {
+    doc["rssi"] = rssiVal;
+    // For receiver, only send RSSI and skip sensor fields to avoid sending 0s
+  } else {
+    // For sender nodes, send all data except RSSI
+    doc["temp"] = round(t * 100) / 100.0;
+    doc["hum"] = round(h * 100) / 100.0;
+    doc["pitch"] = round(p * 100) / 100.0;
+    doc["roll"] = round(r * 100) / 100.0;
+    doc["smokeAnalog"] = sa;
+    doc["smokeDigital"] = sd;
+    doc["danger"] = d;
+    doc["edgeAIClass"] = aiClass;
+  }
 
   String json;
   serializeJson(doc, json);
@@ -103,7 +104,7 @@ void uploadToServer(String id, String type, float t, float h, float p, float r, 
   if (type == "receiver")
     Serial.printf("[GATEWAY] ID: %s | WiFi RSSI: %d dBm\n", id.c_str(), rssiVal);
   else
-    Serial.printf("[NODE] ID: %s | Node RSSI: %d dBm\n", id.c_str(), rssiVal);
+    Serial.printf("[NODE] ID: %s | (No RSSI sent)\n", id.c_str());
 
   Serial.println(json);
 
@@ -149,12 +150,14 @@ void uploadData()
   memcpy(&data.edgeAIClass, rxBuffer + 54, 4);
 
   // Original arg order: id, type, t, h, p, r, sa, sd, d, rssiVal, aiClass
-  uploadToServer(String(rxNodeID), "sender", data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, lastRssi, data.edgeAIClass);
+  // Send 0 for rssi since it will be ignored by uploadToServer for sender nodes
+  uploadToServer(String(rxNodeID), "sender", data.temp, data.hum, data.pitch, data.roll, data.smokeAnalog, data.smokeDigital, data.danger, 0, data.edgeAIClass);
 }
 
 void uploadGatewayStatus()
 {
   // Original arg order: id, type, t, h, p, r, sa, sd, d, rssiVal, aiClass
+  // Pass 0s for sensors as they will be ignored for receiver type
   uploadToServer(gatewayID, "receiver", 0.0, 0.0, 0.0, 0.0, 0, false, false, WiFi.RSSI(), 0);
 }
 
@@ -180,7 +183,7 @@ void setup()
   }
 
   esp_now_register_recv_cb(OnDataRecv);
-  Serial.println("HazardNode Gateway (Simplified) Ready");
+  Serial.println("HazardNode Gateway (Clean Data) Ready");
   Serial.print("Gateway ID: ");
   Serial.println(gatewayID);
 }
