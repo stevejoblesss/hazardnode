@@ -9,11 +9,11 @@
 #include "../model.h"
 
 /* ===== NODE CONFIG ===== */
-const char* nodeID = "Block 3";
+const char* nodeID = "Block 1";
 
 // Safe angle calibration (where the node is mounted/resting)
-#define SAFE_PITCH -66.51
-#define SAFE_ROLL -103.51
+#define SAFE_PITCH 0
+#define SAFE_ROLL 0
 #define TILT_THRESHOLD 30.0
 
 // Update this to match your receiver's MAC address!
@@ -34,18 +34,13 @@ uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x6C, 0x77, 0xF0};
 /* ===== OBJECTS ===== */
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_MPU6050 mpu;
-
-// UNCOMMENT ONLY ONE:
-// 1. Existing I2C SH1106
-// U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
-
-// 2. New SPI SSD1309 (Try NONAME0, if fails try NONAME2 or SSD1306 driver)
 U8G2_SSD1309_128X64_NONAME0_F_4W_SW_SPI u8g2(U8G2_R0, OLED_SCK, OLED_MOSI, OLED_CS, OLED_DC, OLED_RES);
 
 /* ===== DATA STRUCT ===== */
 typedef struct __attribute__((packed)) struct_message
 {
   char nodeID[32];
+  char macAddress[18];
   float temp;
   float hum;
   float pitch;
@@ -94,7 +89,7 @@ void drawOLED()
 
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.setCursor(0, 60);
-    u8g2.print("Node ID: ");
+    u8g2.print("ID: ");
     u8g2.print(nodeID);
   }
   else if (msg.edgeAIClass == 1) // WARNING
@@ -106,7 +101,7 @@ void drawOLED()
     u8g2.setCursor(0, 35);
     u8g2.print("Status: Caution");
     u8g2.setCursor(0, 50);
-    u8g2.print("Node ID: ");
+    u8g2.print("ID: ");
     u8g2.print(nodeID);
   }
   else // NORMAL
@@ -144,7 +139,7 @@ void setup()
   Serial.println("Initializing OLED...");
   if (u8g2.begin()) {
       Serial.println("OLED Init Success");
-      u8g2.setContrast(255); // Max contrast
+      u8g2.setContrast(255);
       u8g2.clearBuffer();
       u8g2.setFont(u8g2_font_ncenB08_tr);
       u8g2.drawStr(0, 20, "HazardNode Init...");
@@ -162,9 +157,13 @@ void setup()
   }
 
   WiFi.mode(WIFI_STA);
-  // Using channel 1 by default as we removed scanning
-  int32_t channel = 1; 
+  String mac = WiFi.macAddress();
+  strncpy(msg.macAddress, mac.c_str(), 17);
+  msg.macAddress[17] = '\0';
   
+  Serial.print("Sender MAC: ");
+  Serial.println(msg.macAddress);
+
   if (esp_now_init() != ESP_OK)
   {
     Serial.println("ESP-NOW INIT FAIL");
@@ -175,7 +174,7 @@ void setup()
 
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, gatewayMAC, 6);
-  peerInfo.channel = 0; // Use current channel
+  peerInfo.channel = 0;
   peerInfo.encrypt = false;
 
   if (esp_now_add_peer(&peerInfo) != ESP_OK)
@@ -183,7 +182,7 @@ void setup()
     Serial.println("Peer Add Fail");
   }
 
-  Serial.println("HazardNode Sender (Edge AI) Ready");
+  Serial.println("HazardNode Sender (Provisioning Enabled) Ready");
   Serial.print("Node ID: ");
   Serial.println(nodeID);
 }
@@ -199,9 +198,23 @@ void loop()
 
   /* ===== READ MPU ===== */
   sensors_event_t a, g, t;
-  mpu.getEvent(&a, &g, &t);
-  msg.pitch = (atan2(a.acceleration.y, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.z * a.acceleration.z)) * 57.3) - SAFE_PITCH;
-  msg.roll = (atan2(-a.acceleration.x, a.acceleration.z) * 57.3) - SAFE_ROLL;
+  float sumX = 0, sumY = 0, sumZ = 0;
+  const int mpuSamples = 10;
+
+  for (int i = 0; i < mpuSamples; i++) {
+    mpu.getEvent(&a, &g, &t);
+    sumX += a.acceleration.x;
+    sumY += a.acceleration.y;
+    sumZ += a.acceleration.z;
+    delay(5);
+  }
+
+  float avgX = sumX / mpuSamples;
+  float avgY = sumY / mpuSamples;
+  float avgZ = sumZ / mpuSamples;
+
+  msg.pitch = (atan2(avgY, sqrt(avgX * avgX + avgZ * avgZ)) * 57.3) - SAFE_PITCH;
+  msg.roll = (atan2(-avgX, avgZ) * 57.3) - SAFE_ROLL;
 
   /* ===== READ MQ2 ===== */
   long total = 0;
@@ -225,13 +238,11 @@ void loop()
 
   /* ===== SERIAL DEBUG ===== */
   Serial.println("====================");
-  Serial.printf("Node ID: %s | AI Class: %d (%s)\n", 
-                msg.nodeID, msg.edgeAIClass, 
-                msg.edgeAIClass == 0 ? "NORMAL" : (msg.edgeAIClass == 1 ? "WARNING" : "HAZARD"));
+  Serial.printf("Node ID: %s | MAC: %s | AI Class: %d\n", 
+                msg.nodeID, msg.macAddress, msg.edgeAIClass);
   Serial.printf("Temp: %.1f C | Hum: %.1f %%\n", msg.temp, msg.hum);
   Serial.printf("Pitch: %.1f | Roll: %.1f\n", msg.pitch, msg.roll);
   Serial.printf("Smoke: %d (%s)\n", msg.smokeAnalog, msg.smokeDigital ? "DETECTED" : "CLEAR");
-  Serial.printf("Packet: %d | Status: %s\n", packetCount, sendSuccess ? "SUCCESS" : "FAILED");
 
   drawOLED();
   delay(1000);
