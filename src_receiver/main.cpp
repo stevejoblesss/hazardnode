@@ -50,19 +50,19 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
   newDataAvailable = true;
 }
 
-void provisionDevice() {
+void syncConfig() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  Serial.println("Provisioning device...");
+  Serial.println("Syncing configuration from Cloud...");
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
   
-  http.begin(client, provisionURL);
-  http.addHeader("Content-Type", "application/json");
+  // Fetch config using MAC address as query param
+  String url = String(provisionURL) + "?mac=" + WiFi.macAddress();
+  http.begin(client, url);
 
-  String payload = "{\"mac_address\": \"" + WiFi.macAddress() + "\", \"type\": \"receiver\"}";
-  int httpCode = http.POST(payload);
+  int httpCode = http.GET();
 
   if (httpCode == 200) {
     String response = http.getString();
@@ -70,12 +70,29 @@ void provisionDevice() {
     
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, response);
-    if (!error && doc["name"].is<const char*>()) {
-      strncpy(gatewayID, doc["name"], 31);
-      Serial.printf("Gateway renamed to: %s\n", gatewayID);
+    if (!error) {
+      // 1. Handle Name Update
+      if (doc["name"].is<const char*>()) {
+        strncpy(gatewayID, doc["name"], 31);
+        Serial.printf("Gateway Name: %s\n", gatewayID);
+      }
+      
+      // 2. Handle WiFi Update
+      if (doc["config"]["wifi"]["ssid"].is<const char*>() && doc["config"]["wifi"]["password"].is<const char*>()) {
+        const char* newSSID = doc["config"]["wifi"]["ssid"];
+        const char* newPass = doc["config"]["wifi"]["password"];
+        
+        if (strlen(newSSID) > 0 && String(newSSID) != WiFi.SSID()) {
+          Serial.printf("Remote WiFi update detected! New SSID: %s\n", newSSID);
+          WiFi.begin(newSSID, newPass);
+          Serial.println("Restarting to apply new WiFi settings...");
+          delay(3000);
+          ESP.restart();
+        }
+      }
     }
   } else {
-    Serial.printf("Provisioning failed, code: %d\n", httpCode);
+    Serial.printf("Sync failed, code: %d\n", httpCode);
   }
   http.end();
 }
@@ -188,8 +205,8 @@ void setup()
   
   Serial.println("WiFi Connected!");
   
-  // Provision the gateway to get its custom name
-  provisionDevice();
+  // Initial sync from cloud to get Name and latest WiFi
+  syncConfig();
 
   WiFi.setSleep(false);
 
@@ -214,10 +231,19 @@ void loop()
   }
 
   static unsigned long lastGatewayUpdate = 0;
+  static unsigned long lastConfigSync = 0;
+
   if (millis() - lastGatewayUpdate > 60000)
   {
     lastGatewayUpdate = millis();
     uploadGatewayStatus();
+  }
+
+  // Periodic config sync every 5 minutes
+  if (millis() - lastConfigSync > 300000)
+  {
+    lastConfigSync = millis();
+    syncConfig();
   }
 
   static unsigned long lastWiFiCheck = 0;
