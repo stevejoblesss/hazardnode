@@ -9,11 +9,11 @@
 #include "../model.h"
 
 /* ===== NODE CONFIG ===== */
-const char* nodeID = "Block 1";
+const char* nodeID = "Block 3";
 
 // Safe angle calibration (where the node is mounted/resting)
-#define SAFE_PITCH 0
-#define SAFE_ROLL 0
+#define SAFE_PITCH -84.2//-70node1 -84.2node2 -88node3
+#define SAFE_ROLL -166//-2.5node1 -166node2 -98.5node3
 #define TILT_THRESHOLD 30.0
 
 // Update this to match your receiver's MAC address!
