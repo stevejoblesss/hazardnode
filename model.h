@@ -1,4 +1,4 @@
-// HazardNode Edge AI - Decision Tree Classifier
+// HazardNode Edge AI - Random Forest Classifier
 // Features: temp, hum, pitch, roll, smoke_analog
 // Labels: 0=NORMAL, 1=WARNING, 2=HAZARD
 // Generated from Scikit-Learn
