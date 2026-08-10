@@ -74,18 +74,18 @@ void drawOLED()
   if (msg.edgeAIClass == 2) // HAZARD
   {
     u8g2.setFont(u8g2_font_ncenB08_tr);
-    u8g2.drawStr(0, 15, "!!! HAZARD !!!");
+    u8g2.drawStr(0, 15, "!!! 有风险 !!!");
 
     u8g2.setFont(u8g2_font_ncenB12_tr);
     float pitchDev = abs(msg.pitch);
     float rollDev = abs(msg.roll);
 
     if (pitchDev > TILT_THRESHOLD || rollDev > TILT_THRESHOLD)
-      u8g2.drawStr(0, 40, "COLLAPSE!");
+      u8g2.drawStr(0, 40, "坍塌!");
     else if (msg.smokeAnalog > 2500 || msg.temp > 60)
-      u8g2.drawStr(0, 40, "FIRE/SMOKE");
+      u8g2.drawStr(0, 40, "火灾/烟雾");
     else
-      u8g2.drawStr(0, 40, "DANGER!");
+      u8g2.drawStr(0, 40, "危险!");
 
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.setCursor(0, 60);
@@ -95,11 +95,11 @@ void drawOLED()
   else if (msg.edgeAIClass == 1) // WARNING
   {
     u8g2.setFont(u8g2_font_ncenB08_tr);
-    u8g2.drawStr(0, 15, "--- WARNING ---");
+    u8g2.drawStr(0, 15, "--- 警告 ---");
     
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.setCursor(0, 35);
-    u8g2.print("Status: Caution");
+    u8g2.print("状态: 警戒");
     u8g2.setCursor(0, 50);
     u8g2.print("ID: ");
     u8g2.print(nodeID);
@@ -108,19 +108,19 @@ void drawOLED()
   {
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.setCursor(0, 10);
-    u8g2.print("Node:"); u8g2.print(nodeID);
+    u8g2.print("节点:"); u8g2.print(nodeID);
     u8g2.setCursor(0, 22);
-    u8g2.print("T:"); u8g2.print(msg.temp, 1);
+    u8g2.print("温度:"); u8g2.print(msg.temp, 1);
     u8g2.setCursor(60, 22);
-    u8g2.print("H:"); u8g2.print(msg.hum, 0);
+    u8g2.print("湿度:"); u8g2.print(msg.hum, 0);
     u8g2.setCursor(0, 34);
-    u8g2.print("Pitch:"); u8g2.print(msg.pitch, 0);
+    u8g2.print("俯仰角:"); u8g2.print(msg.pitch, 0);
     u8g2.setCursor(60, 34);
-    u8g2.print("Roll:"); u8g2.print(msg.roll, 0);
+    u8g2.print("横滚:"); u8g2.print(msg.roll, 0);
     u8g2.setCursor(0, 46);
-    u8g2.print("Smoke:"); u8g2.print(msg.smokeDigital ? "YES" : "NO");
+    u8g2.print("烟:"); u8g2.print(msg.smokeDigital ? "有" : "无");
     u8g2.setCursor(0, 58);
-    u8g2.print("Pkt:"); u8g2.print(packetCount);
+    u8g2.print("数据包:"); u8g2.print(packetCount);
   }
 
   u8g2.sendBuffer();
