@@ -13,11 +13,11 @@ const char* nodeID = "Node 2";
 
 // Safe angle calibration (where the node is mounted/resting)
 #define SAFE_PITCH -84.4 //-70node1 -84.4node2 -85.2node3
-#define SAFE_ROLL -162.6 //-2.5node1 -162.6node2 -132.5node3
+#define SAFE_ROLL -162.2 //-2.5node1 -162.6node2 -132.5node3
 #define TILT_THRESHOLD 30.0
 
 // Update this to match your receiver's MAC address!
-uint8_t gatewayMAC[] = {0x88, 0x13, 0xBF, 0x6C, 0x77, 0xF0};
+uint8_t gatewayMAC[] = {0xC8, 0x2E, 0x18, 0x24, 0xF9, 0x1C};
 
 /* ===== PIN CONFIG ===== */
 #define DHTPIN 4
@@ -213,8 +213,51 @@ void loop()
   float avgY = sumY / mpuSamples;
   float avgZ = sumZ / mpuSamples;
 
-  msg.pitch = (atan2(avgY, sqrt(avgX * avgX + avgZ * avgZ)) * 57.3) - SAFE_PITCH;
-  msg.roll = (atan2(-avgX, avgZ) * 57.3) - SAFE_ROLL;
+  float accLen = sqrt(avgX * avgX + avgY * avgY + avgZ * avgZ);
+  if (accLen > 0.1f) {
+    float cx = avgX / accLen;
+    float cy = avgY / accLen;
+    float cz = avgZ / accLen;
+
+    float spRad = SAFE_PITCH * M_PI / 180.0f;
+    float srRad = SAFE_ROLL * M_PI / 180.0f;
+    float sx = -sinf(srRad) * cosf(spRad);
+    float sy = sinf(spRad);
+    float sz = cosf(srRad) * cosf(spRad);
+
+    float upX = -sx;
+    float upY = -sy;
+    float upZ = -sz;
+
+    float refX, refY, refZ;
+    if (fabsf(upZ) < 0.9f) {
+      refX = 0.0f; refY = 0.0f; refZ = 1.0f;
+    } else {
+      refX = 1.0f; refY = 0.0f; refZ = 0.0f;
+    }
+
+    float rightX = refY * upZ - refZ * upY;
+    float rightY = refZ * upX - refX * upZ;
+    float rightZ = refX * upY - refY * upX;
+    float rLen = sqrtf(rightX * rightX + rightY * rightY + rightZ * rightZ);
+    if (rLen > 0.001f) {
+      rightX /= rLen; rightY /= rLen; rightZ /= rLen;
+    }
+
+    float fwdX = upY * rightZ - upZ * rightY;
+    float fwdY = upZ * rightX - upX * rightZ;
+    float fwdZ = upX * rightY - upY * rightX;
+
+    float gr = cx * rightX + cy * rightY + cz * rightZ;
+    float gf = cx * fwdX   + cy * fwdY   + cz * fwdZ;
+    float gu = -(cx * upX  + cy * upY   + cz * upZ);
+
+    msg.pitch = atan2f(gf, sqrtf(gr * gr + gu * gu)) * 57.3f;
+    msg.roll  = atan2f(-gr, gu) * 57.3f;
+  } else {
+    msg.pitch = 0.0f;
+    msg.roll  = 0.0f;
+  }
 
   /* ===== READ MQ2 ===== */
   long total = 0;
